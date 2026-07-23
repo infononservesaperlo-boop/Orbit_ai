@@ -17,12 +17,11 @@ testuale della conversazione è disponibile a richiesta tramite il pulsante
     solo su alcuni browser (bene su Chrome/Edge; **Firefox e Safari non
     supportano `SpeechRecognition`**) — in quel caso l'interfaccia mostra
     automaticamente un campo di testo come fallback per rispondere.
-  - La voce dell'AI usa **Google Cloud Text-to-Speech** (voce neurale
-    italiana, molto più naturale della sintesi vocale nativa del browser)
-    tramite `/api/tts`. Se la chiave non è configurata, la quota gratuita è
-    esaurita o c'è un errore di rete, l'app torna automaticamente alla
-    sintesi vocale nativa del browser (`SpeechSynthesis`) per non restare
-    muta.
+  - La voce dell'AI usa **Microsoft Azure Speech** (voce neurale italiana,
+    molto più naturale della sintesi vocale nativa del browser) tramite
+    `/api/tts`. Se la chiave non è configurata, la quota gratuita è esaurita
+    o c'è un errore di rete, l'app torna automaticamente alla sintesi vocale
+    nativa del browser (`SpeechSynthesis`) per non restare muta.
   - Un orb centrale con un'aura pulsante mostra visivamente se l'AI sta
     "parlando" (arancione) o se lo studente sta "parlando" (blu, reattiva al
     volume reale del microfono). Un pulsante "Trascrivi" mostra/nasconde la
@@ -35,9 +34,10 @@ testuale della conversazione è disponibile a richiesta tramite il pulsante
   - Restituisce al frontend solo il testo della risposta dell'AI.
 - **Funzione serverless `api/tts.js`**:
   - Riceve dal frontend il testo da pronunciare.
-  - Inoltra la richiesta a Google Cloud Text-to-Speech
-    (`https://texttospeech.googleapis.com/v1/text:synthesize`) aggiungendo la
-    chiave letta dalla variabile d'ambiente `GOOGLE_TTS_API_KEY`.
+  - Ottiene un token da Azure (`https://{regione}.api.cognitive.microsoft.com/sts/v1.0/issueToken`)
+    usando `AZURE_TTS_KEY`, poi inoltra il testo (come SSML) all'endpoint di
+    sintesi di Azure Speech (`https://{regione}.tts.speech.microsoft.com/cognitiveservices/v1`),
+    con la regione letta da `AZURE_TTS_REGION`.
   - Restituisce al frontend l'audio in base64 (MP3), che viene riprodotto con
     un elemento `<audio>`.
 
@@ -46,23 +46,26 @@ server, come variabili d'ambiente su Vercel, e vengono usate esclusivamente
 dalle funzioni serverless in `api/`. Aprendo "Ispeziona elemento" nel browser
 non sono in alcun modo visibili.
 
-### Google Cloud Text-to-Speech: come ottenere la chiave
+### Microsoft Azure Speech: come ottenere chiave e regione
 
-1. Crea (o usa) un progetto su [Google Cloud Console](https://console.cloud.google.com/).
-2. Abilita la **Cloud Text-to-Speech API** per quel progetto (Menu →
-   API e servizi → Libreria → cerca "Text-to-Speech" → Abilita).
-   ⚠️ Google richiede di collegare un **account di fatturazione** (carta di
-   credito) al progetto per poter usare l'API, anche restando nel piano
-   gratuito — non viene addebitato nulla finché non superi la soglia
-   mensile gratuita (1 milione di caratteri/mese con voci Neural2/WaveNet).
-3. Vai su API e servizi → Credenziali → Crea credenziali → Chiave API.
-   Ti consiglio di restringerla ("Limita chiave") alla sola Cloud
-   Text-to-Speech API, per sicurezza.
-4. Copia la chiave: è il valore di `GOOGLE_TTS_API_KEY`.
+1. Vai su [portal.azure.com](https://portal.azure.com/) e crea una risorsa
+   **"Speech"** (cerca "Speech" tra i servizi Cognitive Services → Crea).
+   ⚠️ Azure richiede un account con verifica (in genere carta di
+   credito/debito) per creare la risorsa, anche restando nel piano gratuito
+   — non viene addebitato nulla restando nel tier **F0 (Free)**.
+2. Durante la creazione scegli il piano tariffario **F0 (gratuito)**: circa
+   500.000 caratteri/mese con voci neurali, gratis per sempre entro quella
+   soglia.
+3. Annota la **regione** scelta in fase di creazione (es. `westeurope`,
+   `northeurope`, `eastus`...): è il valore di `AZURE_TTS_REGION`.
+4. A creazione completata, apri la risorsa → **"Chiavi ed endpoint"** nel
+   menu laterale → copia **KEY 1**: è il valore di `AZURE_TTS_KEY`.
 
-Se in futuro vuoi cambiare voce, la variabile opzionale `GOOGLE_TTS_VOICE`
-(default `it-IT-Neural2-A`) accetta qualunque nome di voce `it-IT` elencato
-nella [documentazione Google](https://cloud.google.com/text-to-speech/docs/voices).
+Se in futuro vuoi cambiare voce, la variabile opzionale `AZURE_TTS_VOICE`
+(default `it-IT-IsabellaNeural`) accetta qualunque nome di voce neurale
+`it-IT` elencato nella
+[documentazione Azure](https://learn.microsoft.com/azure/ai-services/speech-service/language-support?tabs=tts#supported-languages)
+(es. `it-IT-DiegoNeural`, `it-IT-ElsaNeural`, `it-IT-GiuseppeMultilingualNeural`).
 
 ## Struttura del progetto
 
@@ -72,7 +75,7 @@ nella [documentazione Google](https://cloud.google.com/text-to-speech/docs/voice
 ├── css/style.css        # stile navy/arancione
 ├── js/app.js             # logica: Web Speech API + chiamate a /api/deepseek e /api/tts
 ├── api/deepseek.js       # funzione serverless: proxy verso DeepSeek (chiave server-side)
-├── api/tts.js            # funzione serverless: proxy verso Google Cloud TTS (chiave server-side)
+├── api/tts.js            # funzione serverless: proxy verso Azure Speech TTS (chiave server-side)
 ├── package.json
 ├── .env.example          # esempio variabili d'ambiente per sviluppo locale
 └── .gitignore            # esclude .env e .vercel dal repository
@@ -88,10 +91,10 @@ nella [documentazione Google](https://cloud.google.com/text-to-speech/docs/voice
    `index.html`).
 5. **Variabili d'ambiente** (Project Settings → Environment Variables):
    - `DEEPSEEK_API_KEY` → la tua chiave API DeepSeek.
-   - `GOOGLE_TTS_API_KEY` → la tua chiave Google Cloud Text-to-Speech (vedi
-     sezione sopra). Se la ometti, l'app funziona comunque usando la voce
-     nativa del browser come fallback.
-   - `GOOGLE_TTS_VOICE` (opzionale) → nome di una voce `it-IT` alternativa.
+   - `AZURE_TTS_KEY` e `AZURE_TTS_REGION` → chiave e regione di Azure Speech
+     (vedi sezione sopra). Se le ometti, l'app funziona comunque usando la
+     voce nativa del browser come fallback.
+   - `AZURE_TTS_VOICE` (opzionale) → nome di una voce `it-IT` alternativa.
    - Per ciascuna, seleziona **Production**, **Preview** e **Development**
      (tutte e tre le spunte), così è disponibile sia in produzione sia nelle
      preview di eventuali branch/PR.
