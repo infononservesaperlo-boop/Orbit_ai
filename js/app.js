@@ -51,9 +51,11 @@
       }
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
       setListening(false);
       setStatus("Pronto");
+      const message = describeRecognitionError(event.error);
+      if (message) appendMessage("error", message);
     };
 
     recognition.onend = () => {
@@ -62,6 +64,24 @@
   } else {
     micBtn.hidden = true;
     speechWarning.hidden = false;
+  }
+
+  function describeRecognitionError(code) {
+    switch (code) {
+      case "not-allowed":
+      case "service-not-allowed":
+        return "Microfono bloccato: controlla il permesso microfono per questo sito nelle impostazioni del browser (icona lucchetto nella barra indirizzi) e ricarica la pagina.";
+      case "no-speech":
+        return "Non ho sentito nulla. Riprova a parlare premendo di nuovo il pulsante.";
+      case "audio-capture":
+        return "Nessun microfono trovato o utilizzabile dal browser.";
+      case "network":
+        return "Errore di rete durante il riconoscimento vocale. Riprova.";
+      case "aborted":
+        return null;
+      default:
+        return "Errore riconoscimento vocale (" + code + "). Riprova o usa la tastiera.";
+    }
   }
 
   function setStatus(text, kind) {
@@ -97,24 +117,55 @@
         resolve();
         return;
       }
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "it-IT";
-      const voices = window.speechSynthesis.getVoices();
-      const itVoice = voices.find((v) => v.lang && v.lang.startsWith("it"));
-      if (itVoice) utterance.voice = itVoice;
+      const synth = window.speechSynthesis;
 
-      utterance.onstart = () => setStatus("Sta parlando...", "speaking");
-      utterance.onend = () => {
-        setStatus("Pronto");
-        resolve();
+      const doSpeak = () => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "it-IT";
+        const voices = synth.getVoices();
+        const itVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("it"));
+        if (itVoice) utterance.voice = itVoice;
+
+        let resolved = false;
+        const finish = () => {
+          if (resolved) return;
+          resolved = true;
+          setStatus("Pronto");
+          resolve();
+        };
+
+        utterance.onstart = () => setStatus("Sta parlando...", "speaking");
+        utterance.onend = finish;
+        utterance.onerror = finish;
+        synth.speak(utterance);
+
+        // Alcune versioni di Chrome non emettono mai onend/onerror in certi
+        // casi (bug noto): sblocchiamo comunque l'interfaccia dopo un timeout
+        // di sicurezza proporzionale alla lunghezza del testo.
+        setTimeout(finish, Math.max(4000, text.length * 90));
       };
-      utterance.onerror = () => {
-        setStatus("Pronto");
-        resolve();
-      };
-      window.speechSynthesis.speak(utterance);
+
+      // Chiamare speak() subito dopo cancel() puo' non produrre audio su
+      // Chrome (bug noto): se la sintesi e' occupata, annulliamo e aspettiamo
+      // un istante prima di far partire la nuova frase.
+      if (synth.speaking || synth.pending) {
+        synth.cancel();
+        setTimeout(doSpeak, 60);
+      } else {
+        doSpeak();
+      }
     });
+  }
+
+  function unlockSpeechSynthesis() {
+    if (!supportsSynthesis) return;
+    // Su alcuni browser (Safari/iOS in particolare) speechSynthesis.speak()
+    // funziona in modo affidabile solo se la prima chiamata avviene in modo
+    // sincrono dentro un gesto utente (click). Questa frase quasi silenziosa
+    // "sblocca" il motore per le chiamate asincrone successive.
+    const unlock = new SpeechSynthesisUtterance(" ");
+    unlock.volume = 0;
+    window.speechSynthesis.speak(unlock);
   }
 
   async function callAI(newMessages) {
@@ -215,8 +266,16 @@
       setListening(true);
       recognition.start();
     } catch (e) {
-      setListening(false);
-      setStatus("Pronto");
+      // Se il riconoscimento risultava gia' avviato (stato incoerente in
+      // alcuni browser), lo fermiamo e riproviamo una volta.
+      try {
+        recognition.abort();
+        recognition.start();
+      } catch (e2) {
+        setListening(false);
+        setStatus("Pronto");
+        appendMessage("error", "Impossibile avviare il microfono. Ricarica la pagina e riprova.");
+      }
     }
   });
 
@@ -238,6 +297,7 @@
       return;
     }
     setupError.hidden = true;
+    unlockSpeechSynthesis();
 
     const systemPrompt = buildSystemPrompt(topic, notes);
     messages = [
