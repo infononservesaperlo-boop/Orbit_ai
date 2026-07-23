@@ -2,7 +2,7 @@
   "use strict";
 
   const TOTAL_QUESTIONS = 5;
-  const SILENCE_TIMEOUT_MS = 1400; // pausa tollerata prima di considerare finita la risposta
+  const SILENCE_TIMEOUT_MS = 5000; // pausa tollerata prima di considerare finita la risposta
   const MAX_RECORDING_MS = 60000; // salvagente: interrompe l'ascolto se resta aperto troppo a lungo
 
   const setupPanel = document.getElementById("setup-panel");
@@ -636,8 +636,10 @@
       "Usa la tua conoscenza generale dei programmi scolastici italiani tipici per questo tipo di scuola, questa materia e questo anno, per calibrare taglio, enfasi e linguaggio delle domande a quello atteso in quel contesto (il programma su un dato argomento puo' avere enfasi diverse tra un liceo classico, uno scientifico, un istituto tecnico, ecc.). Non hai accesso a internet in tempo reale: basati sulla tua conoscenza generale, senza inventare dettagli iper specifici o citare fonti che non conosci con certezza.",
       "Regole obbligatorie:",
       "- Fai UNA domanda alla volta, chiara, adatta a un'interrogazione orale (non troppo lunga).",
-      "- Dopo ogni risposta dello studente, dai un feedback breve (massimo 2-3 frasi): correggi eventuali errori o imprecisioni, poi fai la domanda successiva.",
-      `- In totale devi fare ${TOTAL_QUESTIONS} domande sull'argomento "${topic}". Le domande devono esplorare aspetti DIVERSI tra loro: non fare mai due domande simili o ripetitive. Alterna, per esempio, definizioni/concetti chiave, cause/conseguenze o meccanismi, esempi pratici o applicazioni concrete, collegamenti con altri argomenti o contesti, e un aspetto piu' critico o di ragionamento personale. Adatta anche il taglio delle domande alla materia (es. in una materia scientifica includi calcoli o applicazioni pratiche, in una materia umanistica includi analisi critica o contestualizzazione storica/culturale).`,
+      "- Dopo ogni risposta corretta o sostanzialmente corretta dello studente, dai un feedback breve (massimo 2-3 frasi), poi fai la domanda successiva (nuovo argomento).",
+      "- Se lo studente risponde in modo errato, incompleto o dice di non sapere: NON spiegare subito la risposta corretta e NON passare alla domanda successiva. Dagli invece un piccolo aiuto o indizio (senza rivelare la risposta) e ripeti/rilancia la STESSA domanda, eventualmente riformulata in modo piu' semplice o guidato. Puoi insistere cosi' su questa stessa domanda per un massimo di 3 tentativi complessivi. Se lo studente ci arriva durante questi tentativi, fagli un breve complimento e passa alla domanda successiva. Se dopo 3 tentativi ancora non ci arriva, non insistere oltre: in una sola frase sintetica dai tu la risposta corretta (cosi' impara qualcosa), poi passa alla domanda successiva.",
+      "- Questi tentativi supplementari sulla stessa domanda NON contano come nuove domande: il conteggio delle domande totali avanza solo quando passi a un argomento davvero nuovo.",
+      `- In totale devi fare ${TOTAL_QUESTIONS} domande (argomenti) diversi sull'argomento "${topic}". Le domande devono esplorare aspetti DIVERSI tra loro: non fare mai due domande simili o ripetitive. Alterna, per esempio, definizioni/concetti chiave, cause/conseguenze o meccanismi, esempi pratici o applicazioni concrete, collegamenti con altri argomenti o contesti, e un aspetto piu' critico o di ragionamento personale. Adatta anche il taglio delle domande alla materia (es. in una materia scientifica includi calcoli o applicazioni pratiche, in una materia umanistica includi analisi critica o contestualizzazione storica/culturale).`,
       `- Calibra la difficolta' delle domande e la profondita' attesa nelle risposte al livello indicato sopra (${difficulty}).`,
       `- Dopo il feedback alla risposta della ${TOTAL_QUESTIONS}ª domanda, NON fare un'altra domanda: fornisci invece la valutazione finale, e SOLO quella, con questo formato esatto:`,
       "VALUTAZIONE FINALE",
