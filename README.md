@@ -3,33 +3,66 @@
 Prototipo di uno strumento che interroga oralmente uno studente su un
 argomento a scelta, usando l'AI come esaminatore: fa domande a voce, ascolta
 la risposta parlata, dà un breve feedback, e dopo circa 5 domande fornisce
-una valutazione finale (voto 1-10 + punti da ripassare). La conversazione è
-sempre visibile anche come trascrizione testuale a schermo.
+una valutazione finale (voto 1-10 + punti da ripassare). La trascrizione
+testuale della conversazione è disponibile a richiesta tramite il pulsante
+"Trascrivi".
 
 ## Come funziona
 
 - **Frontend statico** (`index.html`, `css/style.css`, `js/app.js`):
-  - Lo studente inserisce l'argomento (e opzionalmente appunti/testo di
-    riferimento).
-  - Il riconoscimento vocale (`SpeechRecognition`) e la sintesi vocale
-    (`SpeechSynthesis`) usano le Web Speech API native del browser, in
-    italiano (`it-IT`). Sono gratuite ma disponibili solo su alcuni browser
-    (bene su Chrome/Edge; **Firefox e Safari non supportano
-    `SpeechRecognition`**) — in quel caso l'interfaccia mostra
+  - Lo studente sceglie materia, tipo di scuola, anno, difficoltà, argomento
+    (e opzionalmente appunti/testo di riferimento).
+  - Il riconoscimento vocale (`SpeechRecognition`) usa le Web Speech API
+    native del browser, in italiano (`it-IT`). È gratuito ma disponibile
+    solo su alcuni browser (bene su Chrome/Edge; **Firefox e Safari non
+    supportano `SpeechRecognition`**) — in quel caso l'interfaccia mostra
     automaticamente un campo di testo come fallback per rispondere.
-  - Un indicatore di stato mostra se l'AI sta "ascoltando", "parlando" o
-    "elaborando".
-- **Funzione serverless** (`api/deepseek.js`):
+  - La voce dell'AI usa **Google Cloud Text-to-Speech** (voce neurale
+    italiana, molto più naturale della sintesi vocale nativa del browser)
+    tramite `/api/tts`. Se la chiave non è configurata, la quota gratuita è
+    esaurita o c'è un errore di rete, l'app torna automaticamente alla
+    sintesi vocale nativa del browser (`SpeechSynthesis`) per non restare
+    muta.
+  - Un orb centrale con un'aura pulsante mostra visivamente se l'AI sta
+    "parlando" (arancione) o se lo studente sta "parlando" (blu, reattiva al
+    volume reale del microfono). Un pulsante "Trascrivi" mostra/nasconde la
+    trascrizione testuale completa a richiesta.
+- **Funzione serverless `api/deepseek.js`**:
   - Riceve dal frontend la cronologia della conversazione.
   - Inoltra la richiesta a DeepSeek (`https://api.deepseek.com/chat/completions`,
     modello `deepseek-chat`) aggiungendo la chiave API letta dalla variabile
     d'ambiente `DEEPSEEK_API_KEY`.
   - Restituisce al frontend solo il testo della risposta dell'AI.
+- **Funzione serverless `api/tts.js`**:
+  - Riceve dal frontend il testo da pronunciare.
+  - Inoltra la richiesta a Google Cloud Text-to-Speech
+    (`https://texttospeech.googleapis.com/v1/text:synthesize`) aggiungendo la
+    chiave letta dalla variabile d'ambiente `GOOGLE_TTS_API_KEY`.
+  - Restituisce al frontend l'audio in base64 (MP3), che viene riprodotto con
+    un elemento `<audio>`.
 
-**La chiave API DeepSeek non è mai presente nel codice frontend**: vive solo
-lato server, come variabile d'ambiente su Vercel, e viene usata esclusivamente
-dalla funzione serverless in `api/deepseek.js`. Aprendo "Ispeziona elemento"
-nel browser non è in alcun modo visibile.
+**Le chiavi API non sono mai presenti nel codice frontend**: vivono solo lato
+server, come variabili d'ambiente su Vercel, e vengono usate esclusivamente
+dalle funzioni serverless in `api/`. Aprendo "Ispeziona elemento" nel browser
+non sono in alcun modo visibili.
+
+### Google Cloud Text-to-Speech: come ottenere la chiave
+
+1. Crea (o usa) un progetto su [Google Cloud Console](https://console.cloud.google.com/).
+2. Abilita la **Cloud Text-to-Speech API** per quel progetto (Menu →
+   API e servizi → Libreria → cerca "Text-to-Speech" → Abilita).
+   ⚠️ Google richiede di collegare un **account di fatturazione** (carta di
+   credito) al progetto per poter usare l'API, anche restando nel piano
+   gratuito — non viene addebitato nulla finché non superi la soglia
+   mensile gratuita (1 milione di caratteri/mese con voci Neural2/WaveNet).
+3. Vai su API e servizi → Credenziali → Crea credenziali → Chiave API.
+   Ti consiglio di restringerla ("Limita chiave") alla sola Cloud
+   Text-to-Speech API, per sicurezza.
+4. Copia la chiave: è il valore di `GOOGLE_TTS_API_KEY`.
+
+Se in futuro vuoi cambiare voce, la variabile opzionale `GOOGLE_TTS_VOICE`
+(default `it-IT-Neural2-A`) accetta qualunque nome di voce `it-IT` elencato
+nella [documentazione Google](https://cloud.google.com/text-to-speech/docs/voices).
 
 ## Struttura del progetto
 
@@ -37,10 +70,11 @@ nel browser non è in alcun modo visibile.
 .
 ├── index.html          # pagina unica del prototipo
 ├── css/style.css        # stile navy/arancione
-├── js/app.js             # logica: Web Speech API + chiamate a /api/deepseek
+├── js/app.js             # logica: Web Speech API + chiamate a /api/deepseek e /api/tts
 ├── api/deepseek.js       # funzione serverless: proxy verso DeepSeek (chiave server-side)
+├── api/tts.js            # funzione serverless: proxy verso Google Cloud TTS (chiave server-side)
 ├── package.json
-├── .env.example          # esempio variabile d'ambiente per sviluppo locale
+├── .env.example          # esempio variabili d'ambiente per sviluppo locale
 └── .gitignore            # esclude .env e .vercel dal repository
 ```
 
@@ -53,12 +87,15 @@ nel browser non è in alcun modo visibile.
 4. **Output Directory**: imposta `.` (la root del progetto, dove si trova
    `index.html`).
 5. **Variabili d'ambiente** (Project Settings → Environment Variables):
-   - Nome: `DEEPSEEK_API_KEY`
-   - Valore: la tua chiave API DeepSeek
-   - Ambienti: seleziona **Production**, **Preview** e **Development** (tutte
-     e tre le spunte), così la chiave è disponibile sia in produzione sia
-     nelle preview di eventuali branch/PR.
-   - Dopo aver aggiunto o modificato la variabile, fai un **redeploy** (le
+   - `DEEPSEEK_API_KEY` → la tua chiave API DeepSeek.
+   - `GOOGLE_TTS_API_KEY` → la tua chiave Google Cloud Text-to-Speech (vedi
+     sezione sopra). Se la ometti, l'app funziona comunque usando la voce
+     nativa del browser come fallback.
+   - `GOOGLE_TTS_VOICE` (opzionale) → nome di una voce `it-IT` alternativa.
+   - Per ciascuna, seleziona **Production**, **Preview** e **Development**
+     (tutte e tre le spunte), così è disponibile sia in produzione sia nelle
+     preview di eventuali branch/PR.
+   - Dopo aver aggiunto o modificato una variabile, fai un **redeploy** (le
      variabili d'ambiente vengono applicate solo ai deploy successivi alla
      modifica).
 6. **⚠️ Controlla il "Production Branch"** (Project Settings → Git):
@@ -86,8 +123,8 @@ cp .env.example .env   # poi inserisci la tua chiave in .env (mai committarlo)
 vercel dev
 ```
 
-`vercel dev` serve sia i file statici sia la funzione in `api/deepseek.js`
-leggendo `DEEPSEEK_API_KEY` dal file `.env` locale.
+`vercel dev` serve sia i file statici sia le funzioni in `api/deepseek.js` e
+`api/tts.js`, leggendo le variabili dal file `.env` locale.
 
 ## Note sul prototipo
 

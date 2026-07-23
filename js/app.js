@@ -284,15 +284,146 @@
   }
 
   // ---------- Sintesi vocale ----------
+  //
+  // Voce principale: Google Cloud Text-to-Speech (voce neurale, molto piu'
+  // naturale), tramite /api/tts. Se non disponibile (chiave non configurata,
+  // quota esaurita, errore di rete) si torna automaticamente alla sintesi
+  // vocale nativa del browser, cosi' l'app funziona comunque.
 
-  function speak(text) {
+  let ttsAudioEl = null;
+  let ttsAudioCtx = null;
+  let ttsAnalyser = null;
+  let cloudTtsAvailable = true;
+
+  // Un WAV silenzioso di pochi campioni, usato solo per "sbloccare" la
+  // riproduzione audio programmatica su Safari/iOS (che richiede che il primo
+  // play() su un elemento/contesto avvenga in modo sincrono dentro un gesto
+  // utente, come il click su "Inizia interrogazione").
+  const SILENT_WAV_DATA_URI =
+    "data:audio/wav;base64,UklGRjQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+  function ensureTtsAudioEl() {
+    if (!ttsAudioEl) {
+      ttsAudioEl = new Audio();
+    }
+    return ttsAudioEl;
+  }
+
+  function visualizeAnalyser(analyser) {
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let handle;
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      setAuraScale(1 + Math.min(rms * 5, 0.9));
+      handle = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(handle);
+  }
+
+  function unlockTtsPlayback() {
+    const el = ensureTtsAudioEl();
+    try {
+      if (!ttsAudioCtx) {
+        ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const sourceNode = ttsAudioCtx.createMediaElementSource(el);
+        ttsAnalyser = ttsAudioCtx.createAnalyser();
+        ttsAnalyser.fftSize = 512;
+        sourceNode.connect(ttsAnalyser);
+        ttsAnalyser.connect(ttsAudioCtx.destination);
+      }
+      ttsAudioCtx.resume();
+    } catch (e) {
+      // Se il grafo Web Audio non si crea, l'audio suonera' comunque tramite
+      // l'elemento <audio> diretto: solo l'aura reattiva non funzionera' (si
+      // torna all'animazione a impulsi di riserva in startAiSpeakingAnimation).
+    }
+    el.muted = true;
+    el.src = SILENT_WAV_DATA_URI;
+    el.play()
+      .catch(() => {})
+      .finally(() => {
+        el.muted = false;
+      });
+  }
+
+  async function fetchTtsAudio(text) {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Errore TTS (${res.status})`);
+    }
+    const data = await res.json();
+    return data.audioContent;
+  }
+
+  function playTtsAudio(base64Mp3) {
+    return new Promise((resolve, reject) => {
+      const el = ensureTtsAudioEl();
+      el.src = "data:audio/mp3;base64," + base64Mp3;
+
+      let stopVisualizer = null;
+
+      el.onplay = () => {
+        setStatus("Sta parlando...", "speaking");
+        if (ttsAnalyser) {
+          if (ttsAudioCtx.state === "suspended") ttsAudioCtx.resume();
+          stopVisualizer = visualizeAnalyser(ttsAnalyser);
+        } else {
+          startAiSpeakingAnimation();
+        }
+      };
+
+      const finish = () => {
+        if (stopVisualizer) stopVisualizer();
+        else stopAiSpeakingAnimation();
+        setStatus("Pronto");
+        resolve();
+      };
+
+      el.onended = finish;
+      el.onerror = () => reject(new Error("Riproduzione audio TTS fallita"));
+
+      el.play().catch(reject);
+    });
+  }
+
+  async function speak(text) {
+    const spoken = sanitizeForSpeech(text);
+    if (!spoken) return;
+
+    if (cloudTtsAvailable) {
+      try {
+        const audioBase64 = await fetchTtsAudio(spoken);
+        await playTtsAudio(audioBase64);
+        return;
+      } catch (err) {
+        // La voce cloud non e' disponibile (chiave assente, quota esaurita,
+        // rete assente): niente panico, si prosegue con la voce del browser
+        // per il resto della sessione.
+        cloudTtsAvailable = false;
+      }
+    }
+    await speakWithBrowserSynthesis(spoken);
+  }
+
+  function speakWithBrowserSynthesis(spoken) {
     return new Promise((resolve) => {
       if (!supportsSynthesis) {
         resolve();
         return;
       }
       const synth = window.speechSynthesis;
-      const spoken = sanitizeForSpeech(text);
 
       const doSpeak = () => {
         const utterance = new SpeechSynthesisUtterance(spoken);
@@ -342,7 +473,8 @@
     // Su alcuni browser (Safari/iOS in particolare) speechSynthesis.speak()
     // funziona in modo affidabile solo se la prima chiamata avviene in modo
     // sincrono dentro un gesto utente (click). Questa frase quasi silenziosa
-    // "sblocca" il motore per le chiamate asincrone successive.
+    // "sblocca" il motore per le chiamate asincrone successive (usata come
+    // riserva se la voce cloud non e' disponibile).
     const unlock = new SpeechSynthesisUtterance(" ");
     unlock.volume = 0;
     window.speechSynthesis.speak(unlock);
@@ -452,6 +584,11 @@
     }
     interviewPanel.hidden = true;
     resultPanel.hidden = false;
+    stopAllSpeech();
+  }
+
+  function stopAllSpeech() {
+    if (ttsAudioEl) ttsAudioEl.pause();
     if (supportsSynthesis) window.speechSynthesis.cancel();
   }
 
@@ -556,6 +693,7 @@
       return;
     }
     setupError.hidden = true;
+    unlockTtsPlayback();
     unlockSpeechSynthesis();
 
     const systemPrompt = buildSystemPrompt({
@@ -599,6 +737,7 @@
   });
 
   restartBtn.addEventListener("click", () => {
+    stopAllSpeech();
     topicInput.value = "";
     notesInput.value = "";
     messages = [];
