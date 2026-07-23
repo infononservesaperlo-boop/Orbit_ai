@@ -46,7 +46,9 @@ module.exports = async function handler(req, res) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        // "deepseek-chat" viene dismesso il 24/07/2026: deepseek-v4-flash e'
+        // il modello che lo sostituisce (stessa modalita' "non-thinking").
+        model: "deepseek-v4-flash",
         messages,
         temperature: 0.7,
       }),
