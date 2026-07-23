@@ -9,13 +9,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/style.css" />
+<link rel="icon" href="/assets/orbit-mark.png" />
 </head>
 <body>
 <div class="app">
 
   <header class="app-header">
     <div class="brand">
-      <span class="brand-mark">O</span>
+      <span class="brand-mark"><img src="/assets/orbit-mark.png" alt="Orbit" /></span>
       <div class="brand-text">
         <h1>Orbit Ripetizioni</h1>
         <p>Interrogazione orale AI · prototipo</p>
@@ -111,6 +112,7 @@
       <div class="field">
         <span>Livello di difficoltà</span>
         <div class="segmented" id="difficulty-group" role="radiogroup" aria-label="Livello di difficoltà">
+          <span class="segment-thumb" id="difficulty-thumb"></span>
           <button type="button" class="segment" data-value="basso">Basso</button>
           <button type="button" class="segment active" data-value="medio">Medio</button>
           <button type="button" class="segment" data-value="alto">Alto</button>
@@ -138,7 +140,9 @@
       <div class="orb-stage">
         <div class="orb-wrap idle" id="orb-wrap">
           <div class="orb-aura" id="orb-aura"></div>
-          <div class="orb-core">O</div>
+          <div class="orb-core">
+            <img class="orb-logo" src="/assets/orbit-mark.png" alt="" />
+          </div>
         </div>
         <p id="status-line" class="status-line">Pronto</p>
         <p id="inline-alert" class="inline-alert" hidden></p>
@@ -166,9 +170,21 @@
     <!-- FINAL EVALUATION -->
     <section id="result-panel" class="panel" hidden>
       <h2>Valutazione finale</h2>
-      <div class="score-card">
-        <div class="score-number" id="score-number">-</div>
-        <div class="score-label">/ 10</div>
+      <div class="score-ring-wrap">
+        <svg class="score-ring" viewBox="0 0 140 140">
+          <defs>
+            <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffa94d" />
+              <stop offset="100%" stop-color="#f2811d" />
+            </linearGradient>
+          </defs>
+          <circle class="score-ring-bg" cx="70" cy="70" r="60"></circle>
+          <circle class="score-ring-fill" id="score-ring-fill" cx="70" cy="70" r="60"></circle>
+        </svg>
+        <div class="score-ring-label">
+          <div class="score-number" id="score-number">-</div>
+          <div class="score-label">/ 10</div>
+        </div>
       </div>
       <h3>Punti da ripassare</h3>
       <ul id="review-points"></ul>

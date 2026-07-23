@@ -19,13 +19,30 @@
   const setupError = document.getElementById("setup-error");
 
   let selectedDifficulty = "medio";
+  const difficultyThumb = document.getElementById("difficulty-thumb");
+
+  function updateDifficultyThumb() {
+    const active = difficultyGroup.querySelector(".segment.active");
+    if (!active) return;
+    difficultyThumb.style.width = active.offsetWidth + "px";
+    difficultyThumb.style.transform = `translateX(${active.offsetLeft - 4}px)`;
+  }
+
   difficultyGroup.querySelectorAll(".segment").forEach((btn) => {
     btn.addEventListener("click", () => {
       difficultyGroup.querySelectorAll(".segment").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       selectedDifficulty = btn.dataset.value;
+      updateDifficultyThumb();
     });
   });
+
+  window.addEventListener("resize", updateDifficultyThumb);
+  window.addEventListener("load", updateDifficultyThumb);
+  requestAnimationFrame(updateDifficultyThumb);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(updateDifficultyThumb);
+  }
 
   const interviewTopic = document.getElementById("interview-topic");
   const orbWrap = document.getElementById("orb-wrap");
@@ -40,8 +57,20 @@
   const speechWarning = document.getElementById("speech-warning");
 
   const scoreNumber = document.getElementById("score-number");
+  const scoreRingFill = document.getElementById("score-ring-fill");
   const reviewPoints = document.getElementById("review-points");
   const restartBtn = document.getElementById("restart-btn");
+
+  const SCORE_RING_CIRCUMFERENCE = 2 * Math.PI * 60;
+  scoreRingFill.style.strokeDasharray = String(SCORE_RING_CIRCUMFERENCE);
+  scoreRingFill.style.strokeDashoffset = String(SCORE_RING_CIRCUMFERENCE);
+
+  function revealPanel(el) {
+    el.hidden = false;
+    el.classList.remove("panel-anim");
+    void el.offsetWidth; // forza il reflow per far ripartire l'animazione ogni volta
+    el.classList.add("panel-anim");
+  }
 
   /** @type {{role: "system"|"user"|"assistant", content: string}[]} */
   let messages = [];
@@ -285,10 +314,10 @@
 
   // ---------- Sintesi vocale ----------
   //
-  // Voce principale: Google Cloud Text-to-Speech (voce neurale, molto piu'
-  // naturale), tramite /api/tts. Se non disponibile (chiave non configurata,
-  // quota esaurita, errore di rete) si torna automaticamente alla sintesi
-  // vocale nativa del browser, cosi' l'app funziona comunque.
+  // Voce principale: Azure Speech (voce neurale, molto piu' naturale),
+  // tramite /api/tts. Se non disponibile (chiave non configurata, quota
+  // esaurita, errore di rete) si torna automaticamente alla sintesi vocale
+  // nativa del browser, cosi' l'app funziona comunque.
 
   let ttsAudioEl = null;
   let ttsAudioCtx = null;
@@ -583,8 +612,20 @@
       }
     }
     interviewPanel.hidden = true;
-    resultPanel.hidden = false;
+    revealPanel(resultPanel);
     stopAllSpeech();
+
+    const votoNum = parseFloat(voto);
+    scoreRingFill.style.strokeDashoffset = String(SCORE_RING_CIRCUMFERENCE);
+    if (!Number.isNaN(votoNum)) {
+      const clamped = Math.max(0, Math.min(10, votoNum));
+      const offset = SCORE_RING_CIRCUMFERENCE * (1 - clamped / 10);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scoreRingFill.style.strokeDashoffset = String(offset);
+        });
+      });
+    }
   }
 
   function stopAllSpeech() {
@@ -718,7 +759,7 @@
     clearAlert();
     setupPanel.hidden = true;
     resultPanel.hidden = true;
-    interviewPanel.hidden = false;
+    revealPanel(interviewPanel);
     setStatus("Sta elaborando...", "thinking");
     setBusy(true);
 
@@ -747,7 +788,7 @@
     clearAlert();
     resultPanel.hidden = true;
     interviewPanel.hidden = true;
-    setupPanel.hidden = false;
+    revealPanel(setupPanel);
     setStatus("Pronto");
   });
 
