@@ -31,9 +31,9 @@
       <h2>Prepara l'interrogazione</h2>
 
       <label class="field">
-        <span>Materia *</span>
+        <span>Materia (opzionale)</span>
         <select id="subject-input">
-          <option value="" disabled selected>-- Seleziona una materia --</option>
+          <option value="" selected>Non specificata</option>
           <optgroup label="Lettere e storia">
             <option>Italiano (letteratura)</option>
             <option>Latino</option>
@@ -80,9 +80,9 @@
 
       <div class="field-row">
         <label class="field">
-          <span>Tipo di scuola *</span>
+          <span>Tipo di scuola (opzionale)</span>
           <select id="school-input">
-            <option value="" disabled selected>-- Seleziona il tipo di scuola --</option>
+            <option value="" selected>Non specificato</option>
             <option>Liceo Classico</option>
             <option>Liceo Scientifico</option>
             <option>Liceo Scientifico - opzione Scienze Applicate</option>
@@ -116,6 +116,28 @@
           <button type="button" class="segment" data-value="basso">Basso</button>
           <button type="button" class="segment active" data-value="medio">Medio</button>
           <button type="button" class="segment" data-value="alto">Alto</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <span>Personalità dell'esaminatore</span>
+        <div class="segmented" id="personality-group" role="radiogroup" aria-label="Personalità dell'esaminatore">
+          <span class="segment-thumb" id="personality-thumb"></span>
+          <button type="button" class="segment" data-value="serio">Serio</button>
+          <button type="button" class="segment active" data-value="neutro">Neutro</button>
+          <button type="button" class="segment" data-value="scherzoso">Scherzoso</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <span>Numero di domande</span>
+        <div class="segmented" id="questions-group" role="radiogroup" aria-label="Numero di domande">
+          <span class="segment-thumb" id="questions-thumb"></span>
+          <button type="button" class="segment active" data-value="1">1</button>
+          <button type="button" class="segment" data-value="2">2</button>
+          <button type="button" class="segment" data-value="3">3</button>
+          <button type="button" class="segment" data-value="4">4</button>
+          <button type="button" class="segment" data-value="5">5</button>
         </div>
       </div>
 

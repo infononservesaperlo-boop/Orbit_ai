@@ -1,7 +1,6 @@
 (() => {
   "use strict";
 
-  const TOTAL_QUESTIONS = 5;
   const SILENCE_TIMEOUT_MS = 5000; // pausa tollerata prima di considerare finita la risposta
   const MAX_RECORDING_MS = 600000; // salvagente: interrompe l'ascolto se resta aperto troppo a lungo (10 minuti)
 
@@ -12,36 +11,61 @@
   const subjectInput = document.getElementById("subject-input");
   const schoolInput = document.getElementById("school-input");
   const yearInput = document.getElementById("year-input");
-  const difficultyGroup = document.getElementById("difficulty-group");
   const topicInput = document.getElementById("topic-input");
   const notesInput = document.getElementById("notes-input");
   const startBtn = document.getElementById("start-btn");
   const setupError = document.getElementById("setup-error");
 
-  let selectedDifficulty = "medio";
-  const difficultyThumb = document.getElementById("difficulty-thumb");
+  // ---------- Controlli segmentati (difficolta', personalita', n. domande) ----------
 
-  function updateDifficultyThumb() {
-    const active = difficultyGroup.querySelector(".segment.active");
-    if (!active) return;
-    difficultyThumb.style.width = active.offsetWidth + "px";
-    difficultyThumb.style.transform = `translateX(${active.offsetLeft - 4}px)`;
+  let selectedDifficulty = "medio";
+  let selectedPersonality = "neutro";
+  let selectedNumQuestions = "1";
+
+  const segmentedThumbUpdaters = [];
+
+  function initSegmentedControl(groupId, thumbId, onChange) {
+    const group = document.getElementById(groupId);
+    const thumb = document.getElementById(thumbId);
+
+    function update() {
+      const active = group.querySelector(".segment.active");
+      if (!active) return;
+      thumb.style.width = active.offsetWidth + "px";
+      thumb.style.transform = `translateX(${active.offsetLeft - 4}px)`;
+    }
+
+    group.querySelectorAll(".segment").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        group.querySelectorAll(".segment").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        onChange(btn.dataset.value);
+        update();
+      });
+    });
+
+    segmentedThumbUpdaters.push(update);
   }
 
-  difficultyGroup.querySelectorAll(".segment").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      difficultyGroup.querySelectorAll(".segment").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      selectedDifficulty = btn.dataset.value;
-      updateDifficultyThumb();
-    });
+  initSegmentedControl("difficulty-group", "difficulty-thumb", (v) => {
+    selectedDifficulty = v;
+  });
+  initSegmentedControl("personality-group", "personality-thumb", (v) => {
+    selectedPersonality = v;
+  });
+  initSegmentedControl("questions-group", "questions-thumb", (v) => {
+    selectedNumQuestions = v;
   });
 
-  window.addEventListener("resize", updateDifficultyThumb);
-  window.addEventListener("load", updateDifficultyThumb);
-  requestAnimationFrame(updateDifficultyThumb);
+  function updateAllSegmentedThumbs() {
+    segmentedThumbUpdaters.forEach((fn) => fn());
+  }
+
+  window.addEventListener("resize", updateAllSegmentedThumbs);
+  window.addEventListener("load", updateAllSegmentedThumbs);
+  requestAnimationFrame(updateAllSegmentedThumbs);
   if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(updateDifficultyThumb);
+    document.fonts.ready.then(updateAllSegmentedThumbs);
   }
 
   const interviewTopic = document.getElementById("interview-topic");
@@ -718,16 +742,6 @@
     const school = schoolInput.value;
     const year = yearInput.value;
 
-    if (!subject) {
-      setupError.textContent = "Seleziona una materia.";
-      setupError.hidden = false;
-      return;
-    }
-    if (!school) {
-      setupError.textContent = "Seleziona il tipo di scuola.";
-      setupError.hidden = false;
-      return;
-    }
     if (!topic) {
       setupError.textContent = "Inserisci un argomento per iniziare.";
       setupError.hidden = false;
@@ -744,6 +758,8 @@
       school,
       year,
       difficulty: selectedDifficulty,
+      personality: selectedPersonality,
+      numQuestions: selectedNumQuestions,
     });
     messages = [
       { role: "system", content: systemPrompt },
@@ -752,7 +768,7 @@
     questionCount = 0;
     finished = false;
 
-    interviewTopic.textContent = `${subject} · ${topic}`;
+    interviewTopic.textContent = subject ? `${subject} · ${topic}` : topic;
     transcriptEl.innerHTML = "";
     transcriptEl.hidden = true;
     transcriptToggleBtn.textContent = "Trascrivi";
@@ -798,30 +814,43 @@
     alto: "Alto: domande approfondite che richiedono ragionamento, collegamenti tra concetti diversi, precisione nei dettagli ed esempi articolati; sii piu' esigente nella valutazione.",
   };
 
-  function buildSystemPrompt({ topic, notes, subject, school, year, difficulty }) {
+  const PERSONALITY_LABELS = {
+    serio: "Sei un professore molto serio e rigoroso: tono formale, esigente, poco incline a battute o convenevoli; pretendi precisione nelle risposte. Resta comunque sempre rispettoso e mai umiliante.",
+    neutro: "Mantieni un tono professionale, cordiale e diretto: né troppo severo né troppo scherzoso, il classico tutor equilibrato.",
+    scherzoso: "Sei gentile, incoraggiante e con un tocco di leggerezza e simpatia (qualche battuta leggera se ci sta bene), ma senza perdere di vista la serietà della verifica: resta comunque un'interrogazione vera.",
+  };
+
+  function buildSystemPrompt({ topic, notes, subject, school, year, difficulty, personality, numQuestions }) {
     const notesBlock = notes
       ? `Appunti/testo di riferimento forniti dallo studente:\n"""\n${notes}\n"""\n`
       : "";
     const difficultyText = DIFFICULTY_LABELS[difficulty] || DIFFICULTY_LABELS.medio;
+    const personalityText = PERSONALITY_LABELS[personality] || PERSONALITY_LABELS.neutro;
+    const subjectText = subject || "non specificata: deducila dall'argomento se puoi, altrimenti resta generico";
+    const schoolText = school || "non specificato: procedi in modalita' standard, senza calibrare su un indirizzo scolastico particolare";
+    const totalQuestions = Number(numQuestions) > 0 ? Math.min(5, Math.round(Number(numQuestions))) : 1;
+    const questionsPhrase = totalQuestions === 1 ? "1 sola domanda" : `${totalQuestions} domande (argomenti) diversi`;
 
     return [
       "Sei un tutor AI che interroga oralmente uno studente italiano.",
       "Contesto dello studente:",
-      `- Materia: ${subject}`,
-      `- Tipo di scuola: ${school}`,
+      `- Materia: ${subjectText}`,
+      `- Tipo di scuola: ${schoolText}`,
       `- Anno di corso: ${year}° anno`,
       `- Livello di difficolta' richiesto: ${difficultyText}`,
+      `- Personalita' dell'esaminatore: ${personalityText}`,
       `- Argomento specifico da interrogare: "${topic}"`,
       notesBlock,
-      "Usa la tua conoscenza generale dei programmi scolastici italiani tipici per questo tipo di scuola, questa materia e questo anno, per calibrare taglio, enfasi e linguaggio delle domande a quello atteso in quel contesto (il programma su un dato argomento puo' avere enfasi diverse tra un liceo classico, uno scientifico, un istituto tecnico, ecc.). Non hai accesso a internet in tempo reale: basati sulla tua conoscenza generale, senza inventare dettagli iper specifici o citare fonti che non conosci con certezza.",
+      "Se materia e tipo di scuola sono specificati, usa la tua conoscenza generale dei programmi scolastici italiani tipici per quel contesto per calibrare taglio, enfasi e linguaggio delle domande (il programma su un dato argomento puo' avere enfasi diverse tra un liceo classico, uno scientifico, un istituto tecnico, ecc.). Non hai accesso a internet in tempo reale: basati sulla tua conoscenza generale, senza inventare dettagli iper specifici o citare fonti che non conosci con certezza.",
       "Regole obbligatorie:",
       "- Fai UNA domanda alla volta, chiara, adatta a un'interrogazione orale (non troppo lunga).",
       "- Dopo ogni risposta corretta o sostanzialmente corretta dello studente, dai un feedback breve (massimo 2-3 frasi), poi fai la domanda successiva (nuovo argomento).",
       "- Se lo studente risponde in modo errato, incompleto o dice di non sapere: NON spiegare subito la risposta corretta e NON passare alla domanda successiva. Dagli invece un piccolo aiuto o indizio (senza rivelare la risposta) e ripeti/rilancia la STESSA domanda, eventualmente riformulata in modo piu' semplice o guidato. Puoi insistere cosi' su questa stessa domanda per un massimo di 3 tentativi complessivi. Se lo studente ci arriva durante questi tentativi, fagli un breve complimento e passa alla domanda successiva. Se dopo 3 tentativi ancora non ci arriva, non insistere oltre: in una sola frase sintetica dai tu la risposta corretta (cosi' impara qualcosa), poi passa alla domanda successiva.",
       "- Questi tentativi supplementari sulla stessa domanda NON contano come nuove domande: il conteggio delle domande totali avanza solo quando passi a un argomento davvero nuovo.",
-      `- In totale devi fare ${TOTAL_QUESTIONS} domande (argomenti) diversi sull'argomento "${topic}". Le domande devono esplorare aspetti DIVERSI tra loro: non fare mai due domande simili o ripetitive. Alterna, per esempio, definizioni/concetti chiave, cause/conseguenze o meccanismi, esempi pratici o applicazioni concrete, collegamenti con altri argomenti o contesti, e un aspetto piu' critico o di ragionamento personale. Adatta anche il taglio delle domande alla materia (es. in una materia scientifica includi calcoli o applicazioni pratiche, in una materia umanistica includi analisi critica o contestualizzazione storica/culturale).`,
+      `- In totale devi fare ${questionsPhrase} sull'argomento "${topic}". Se sono piu' di una, le domande devono esplorare aspetti DIVERSI tra loro: non fare mai due domande simili o ripetitive. Alterna, per esempio, definizioni/concetti chiave, cause/conseguenze o meccanismi, esempi pratici o applicazioni concrete, collegamenti con altri argomenti o contesti, e un aspetto piu' critico o di ragionamento personale. Adatta anche il taglio delle domande alla materia (es. in una materia scientifica includi calcoli o applicazioni pratiche, in una materia umanistica includi analisi critica o contestualizzazione storica/culturale).`,
       `- Calibra la difficolta' delle domande e la profondita' attesa nelle risposte al livello indicato sopra (${difficulty}).`,
-      `- Dopo il feedback alla risposta della ${TOTAL_QUESTIONS}ª domanda, NON fare un'altra domanda: fornisci invece la valutazione finale, e SOLO quella, con questo formato esatto:`,
+      `- Mantieni per tutta l'interrogazione la personalita' indicata sopra, sia nelle domande sia nei feedback.`,
+      `- Dopo il feedback alla risposta dell'ultima domanda (la numero ${totalQuestions}), NON fare un'altra domanda: fornisci invece la valutazione finale, e SOLO quella, con questo formato esatto:`,
       "VALUTAZIONE FINALE",
       "Voto: X/10",
       "Punti da ripassare:",
@@ -829,7 +858,7 @@
       "- punto 2",
       "- punto 3 (facoltativo)",
       "- Non aggiungere altro testo dopo la valutazione finale.",
-      "- Rispondi sempre in italiano, con tono incoraggiante ma onesto.",
+      "- Rispondi sempre in italiano.",
       "- Le tue risposte verranno lette ad alta voce da un sintetizzatore vocale: non usare MAI notazione LaTeX, markdown, backslash o simboli come ^, _, \\frac, \\sqrt, asterischi per il grassetto. Scrivi ogni formula o simbolo matematico per esteso, in italiano colloquiale (es. 'x al quadrato' invece di x^2, 'la radice quadrata di 16' invece di \\sqrt{16}, 'due terzi' invece di 2/3, 'a fratto b' invece di \\frac{a}{b}).",
     ].join("\n");
   }
