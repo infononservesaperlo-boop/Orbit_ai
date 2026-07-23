@@ -28,6 +28,95 @@
     <!-- SETUP -->
     <section id="setup-panel" class="panel">
       <h2>Prepara l'interrogazione</h2>
+
+      <label class="field">
+        <span>Materia *</span>
+        <select id="subject-input">
+          <option value="" disabled selected>-- Seleziona una materia --</option>
+          <optgroup label="Lettere e storia">
+            <option>Italiano (letteratura)</option>
+            <option>Latino</option>
+            <option>Greco antico</option>
+            <option>Storia</option>
+            <option>Filosofia</option>
+            <option>Geografia</option>
+          </optgroup>
+          <optgroup label="Lingue straniere">
+            <option>Inglese</option>
+            <option>Francese</option>
+            <option>Spagnolo</option>
+            <option>Tedesco</option>
+          </optgroup>
+          <optgroup label="Matematica e scienze">
+            <option>Matematica</option>
+            <option>Fisica</option>
+            <option>Chimica</option>
+            <option>Scienze naturali (Biologia / Scienze della Terra)</option>
+            <option>Informatica</option>
+          </optgroup>
+          <optgroup label="Discipline artistiche e musicali">
+            <option>Storia dell'arte</option>
+            <option>Discipline pittoriche / plastiche / geometriche</option>
+            <option>Musica</option>
+          </optgroup>
+          <optgroup label="Scienze umane ed economico-sociali">
+            <option>Scienze umane</option>
+            <option>Diritto ed economia</option>
+          </optgroup>
+          <optgroup label="Discipline tecniche e professionali">
+            <option>Economia aziendale</option>
+            <option>Elettrotecnica ed elettronica</option>
+            <option>Meccanica e meccatronica</option>
+            <option>Sistemi e reti / Informatica tecnica</option>
+          </optgroup>
+          <optgroup label="Altro">
+            <option>Educazione civica</option>
+            <option>Scienze motorie e sportive</option>
+            <option value="Altro (specificato nell'argomento)">Altro (specifica nell'argomento)</option>
+          </optgroup>
+        </select>
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Tipo di scuola *</span>
+          <select id="school-input">
+            <option value="" disabled selected>-- Seleziona il tipo di scuola --</option>
+            <option>Liceo Classico</option>
+            <option>Liceo Scientifico</option>
+            <option>Liceo Scientifico - opzione Scienze Applicate</option>
+            <option>Liceo Linguistico</option>
+            <option>Liceo delle Scienze Umane</option>
+            <option>Liceo Artistico</option>
+            <option>Liceo Musicale e Coreutico</option>
+            <option>Istituto Tecnico - Settore Economico</option>
+            <option>Istituto Tecnico - Settore Tecnologico</option>
+            <option>Istituto Professionale</option>
+            <option>Scuola media / altro</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Anno di corso</span>
+          <select id="year-input">
+            <option value="1">1° anno</option>
+            <option value="2">2° anno</option>
+            <option value="3" selected>3° anno</option>
+            <option value="4">4° anno</option>
+            <option value="5">5° anno</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="field">
+        <span>Livello di difficoltà</span>
+        <div class="segmented" id="difficulty-group" role="radiogroup" aria-label="Livello di difficoltà">
+          <button type="button" class="segment" data-value="basso">Basso</button>
+          <button type="button" class="segment active" data-value="medio">Medio</button>
+          <button type="button" class="segment" data-value="alto">Alto</button>
+        </div>
+      </div>
+
       <label class="field">
         <span>Argomento da studiare *</span>
         <input id="topic-input" type="text" placeholder="Es. La Rivoluzione Francese, le equazioni di secondo grado..." />

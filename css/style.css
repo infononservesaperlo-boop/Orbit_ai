@@ -115,7 +115,8 @@ h1, h2, h3 {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   width: 100%;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
@@ -127,9 +128,51 @@ h1, h2, h3 {
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field select:focus {
   outline: 2px solid var(--orange);
   outline-offset: 1px;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 480px) {
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segment {
+  flex: 1;
+  padding: 0.6rem 0.5rem;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: #fbfcfe;
+  color: var(--text);
+  font-family: "Inter", sans-serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.segment:last-child {
+  border-right: none;
+}
+
+.segment.active {
+  background: var(--navy);
+  color: white;
 }
 
 .btn {

@@ -9,10 +9,23 @@
   const interviewPanel = document.getElementById("interview-panel");
   const resultPanel = document.getElementById("result-panel");
 
+  const subjectInput = document.getElementById("subject-input");
+  const schoolInput = document.getElementById("school-input");
+  const yearInput = document.getElementById("year-input");
+  const difficultyGroup = document.getElementById("difficulty-group");
   const topicInput = document.getElementById("topic-input");
   const notesInput = document.getElementById("notes-input");
   const startBtn = document.getElementById("start-btn");
   const setupError = document.getElementById("setup-error");
+
+  let selectedDifficulty = "medio";
+  difficultyGroup.querySelectorAll(".segment").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      difficultyGroup.querySelectorAll(".segment").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedDifficulty = btn.dataset.value;
+    });
+  });
 
   const interviewTopic = document.getElementById("interview-topic");
   const orbWrap = document.getElementById("orb-wrap");
@@ -523,7 +536,20 @@
   startBtn.addEventListener("click", async () => {
     const topic = topicInput.value.trim();
     const notes = notesInput.value.trim();
+    const subject = subjectInput.value;
+    const school = schoolInput.value;
+    const year = yearInput.value;
 
+    if (!subject) {
+      setupError.textContent = "Seleziona una materia.";
+      setupError.hidden = false;
+      return;
+    }
+    if (!school) {
+      setupError.textContent = "Seleziona il tipo di scuola.";
+      setupError.hidden = false;
+      return;
+    }
     if (!topic) {
       setupError.textContent = "Inserisci un argomento per iniziare.";
       setupError.hidden = false;
@@ -532,7 +558,14 @@
     setupError.hidden = true;
     unlockSpeechSynthesis();
 
-    const systemPrompt = buildSystemPrompt(topic, notes);
+    const systemPrompt = buildSystemPrompt({
+      topic,
+      notes,
+      subject,
+      school,
+      year,
+      difficulty: selectedDifficulty,
+    });
     messages = [
       { role: "system", content: systemPrompt },
       { role: "user", content: "Inizia l'interrogazione con la prima domanda." },
@@ -540,7 +573,7 @@
     questionCount = 0;
     finished = false;
 
-    interviewTopic.textContent = topic;
+    interviewTopic.textContent = `${subject} · ${topic}`;
     transcriptEl.innerHTML = "";
     transcriptEl.hidden = true;
     transcriptToggleBtn.textContent = "Trascrivi";
@@ -579,18 +612,33 @@
     setStatus("Pronto");
   });
 
-  function buildSystemPrompt(topic, notes) {
+  const DIFFICULTY_LABELS = {
+    basso: "Basso: domande semplici e dirette sui concetti fondamentali, linguaggio chiaro; nei feedback spiega con calma eventuali errori senza appesantire.",
+    medio: "Medio: livello standard per uno studente che ha studiato con regolarita'; domande di comprensione e applicazione dei concetti, non solo mnemoniche.",
+    alto: "Alto: domande approfondite che richiedono ragionamento, collegamenti tra concetti diversi, precisione nei dettagli ed esempi articolati; sii piu' esigente nella valutazione.",
+  };
+
+  function buildSystemPrompt({ topic, notes, subject, school, year, difficulty }) {
     const notesBlock = notes
       ? `Appunti/testo di riferimento forniti dallo studente:\n"""\n${notes}\n"""\n`
       : "";
+    const difficultyText = DIFFICULTY_LABELS[difficulty] || DIFFICULTY_LABELS.medio;
 
     return [
-      `Sei un tutor AI che interroga oralmente uno studente italiano sull'argomento: "${topic}".`,
+      "Sei un tutor AI che interroga oralmente uno studente italiano.",
+      "Contesto dello studente:",
+      `- Materia: ${subject}`,
+      `- Tipo di scuola: ${school}`,
+      `- Anno di corso: ${year}° anno`,
+      `- Livello di difficolta' richiesto: ${difficultyText}`,
+      `- Argomento specifico da interrogare: "${topic}"`,
       notesBlock,
+      "Usa la tua conoscenza generale dei programmi scolastici italiani tipici per questo tipo di scuola, questa materia e questo anno, per calibrare taglio, enfasi e linguaggio delle domande a quello atteso in quel contesto (il programma su un dato argomento puo' avere enfasi diverse tra un liceo classico, uno scientifico, un istituto tecnico, ecc.). Non hai accesso a internet in tempo reale: basati sulla tua conoscenza generale, senza inventare dettagli iper specifici o citare fonti che non conosci con certezza.",
       "Regole obbligatorie:",
-      `- Fai UNA domanda alla volta, chiara, adatta a un'interrogazione orale (non troppo lunga).`,
+      "- Fai UNA domanda alla volta, chiara, adatta a un'interrogazione orale (non troppo lunga).",
       "- Dopo ogni risposta dello studente, dai un feedback breve (massimo 2-3 frasi): correggi eventuali errori o imprecisioni, poi fai la domanda successiva.",
-      `- In totale devi fare ${TOTAL_QUESTIONS} domande sull'argomento, di difficoltà e argomenti via via diversi (non ripetere le stesse domande).`,
+      `- In totale devi fare ${TOTAL_QUESTIONS} domande sull'argomento "${topic}". Le domande devono esplorare aspetti DIVERSI tra loro: non fare mai due domande simili o ripetitive. Alterna, per esempio, definizioni/concetti chiave, cause/conseguenze o meccanismi, esempi pratici o applicazioni concrete, collegamenti con altri argomenti o contesti, e un aspetto piu' critico o di ragionamento personale. Adatta anche il taglio delle domande alla materia (es. in una materia scientifica includi calcoli o applicazioni pratiche, in una materia umanistica includi analisi critica o contestualizzazione storica/culturale).`,
+      `- Calibra la difficolta' delle domande e la profondita' attesa nelle risposte al livello indicato sopra (${difficulty}).`,
       `- Dopo il feedback alla risposta della ${TOTAL_QUESTIONS}ª domanda, NON fare un'altra domanda: fornisci invece la valutazione finale, e SOLO quella, con questo formato esatto:`,
       "VALUTAZIONE FINALE",
       "Voto: X/10",
