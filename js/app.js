@@ -37,21 +37,66 @@
   let recognition = null;
   let isListening = false;
 
+  let liveBubble = null;
+
+  function showLiveTranscript(text) {
+    if (!liveBubble) {
+      liveBubble = appendMessage("user", text + " …");
+      liveBubble.classList.add("msg-live");
+    } else {
+      liveBubble.textContent = text + " …";
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }
+  }
+
+  function clearLiveTranscript() {
+    if (liveBubble) {
+      liveBubble.remove();
+      liveBubble = null;
+    }
+  }
+
   if (supportsRecognition) {
     recognition = new SpeechRecognitionImpl();
     recognition.lang = "it-IT";
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript.trim();
-      if (transcript) {
-        handleStudentAnswer(transcript);
+      let interim = "";
+      let final = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          final += result[0].transcript;
+        } else {
+          interim += result[0].transcript;
+        }
+      }
+      if (interim.trim()) {
+        showLiveTranscript(interim.trim());
+      }
+      if (final.trim()) {
+        clearLiveTranscript();
+        handleStudentAnswer(final.trim());
       }
     };
 
+    recognition.onaudiostart = () => {
+      setStatus("In ascolto...", "listening");
+    };
+
+    recognition.onspeechstart = () => {
+      setStatus("Ti sento, continua...", "listening");
+    };
+
+    recognition.onspeechend = () => {
+      setStatus("Sto elaborando...", "thinking");
+    };
+
     recognition.onerror = (event) => {
+      clearLiveTranscript();
       setListening(false);
       setStatus("Pronto");
       const message = describeRecognitionError(event.error);
@@ -59,6 +104,7 @@
     };
 
     recognition.onend = () => {
+      clearLiveTranscript();
       setListening(false);
     };
   } else {
