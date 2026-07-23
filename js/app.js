@@ -3,7 +3,7 @@
 
   const TOTAL_QUESTIONS = 5;
   const SILENCE_TIMEOUT_MS = 5000; // pausa tollerata prima di considerare finita la risposta
-  const MAX_RECORDING_MS = 60000; // salvagente: interrompe l'ascolto se resta aperto troppo a lungo
+  const MAX_RECORDING_MS = 600000; // salvagente: interrompe l'ascolto se resta aperto troppo a lungo (10 minuti)
 
   const setupPanel = document.getElementById("setup-panel");
   const interviewPanel = document.getElementById("interview-panel");
