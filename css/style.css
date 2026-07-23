@@ -425,17 +425,7 @@ h3 {
   width: 62%;
   height: 62%;
   object-fit: contain;
-  animation: orbit-spin 26s linear infinite;
   filter: drop-shadow(0 0 6px rgba(242, 129, 29, 0.35));
-}
-
-@keyframes orbit-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .orb-wrap.state-listening {
