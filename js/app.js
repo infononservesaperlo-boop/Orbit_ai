@@ -2,6 +2,8 @@
   "use strict";
 
   const TOTAL_QUESTIONS = 5;
+  const SILENCE_TIMEOUT_MS = 1400; // pausa tollerata prima di considerare finita la risposta
+  const MAX_RECORDING_MS = 60000; // salvagente: interrompe l'ascolto se resta aperto troppo a lungo
 
   const setupPanel = document.getElementById("setup-panel");
   const interviewPanel = document.getElementById("interview-panel");
@@ -13,8 +15,12 @@
   const setupError = document.getElementById("setup-error");
 
   const interviewTopic = document.getElementById("interview-topic");
-  const statusBadge = document.getElementById("status-badge");
+  const orbWrap = document.getElementById("orb-wrap");
+  const orbAura = document.getElementById("orb-aura");
+  const statusLine = document.getElementById("status-line");
+  const inlineAlert = document.getElementById("inline-alert");
   const transcriptEl = document.getElementById("transcript");
+  const transcriptToggleBtn = document.getElementById("transcript-toggle-btn");
   const micBtn = document.getElementById("mic-btn");
   const textForm = document.getElementById("text-form");
   const textInput = document.getElementById("text-input");
@@ -36,80 +42,130 @@
 
   let recognition = null;
   let isListening = false;
+  let silenceTimer = null;
+  let maxDurationTimer = null;
+  let accumulatedFinal = "";
 
-  let liveBubble = null;
+  // ---------- Orb / aura ----------
 
-  function showLiveTranscript(text) {
-    if (!liveBubble) {
-      liveBubble = appendMessage("user", text + " …");
-      liveBubble.classList.add("msg-live");
-    } else {
-      liveBubble.textContent = text + " …";
-      transcriptEl.scrollTop = transcriptEl.scrollHeight;
-    }
+  function setOrbState(state) {
+    orbWrap.classList.remove("idle", "state-listening", "state-ai-speaking");
+    if (state === "listening") orbWrap.classList.add("state-listening");
+    else if (state === "ai-speaking") orbWrap.classList.add("state-ai-speaking");
+    else orbWrap.classList.add("idle");
   }
 
-  function clearLiveTranscript() {
-    if (liveBubble) {
-      liveBubble.remove();
-      liveBubble = null;
-    }
+  function setAuraScale(scale) {
+    orbAura.style.setProperty("--aura-scale", scale.toFixed(3));
   }
 
-  if (supportsRecognition) {
-    recognition = new SpeechRecognitionImpl();
-    recognition.lang = "it-IT";
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
+  function setStatus(text, kind) {
+    statusLine.textContent = text;
+    if (kind === "listening") setOrbState("listening");
+    else if (kind === "speaking") setOrbState("ai-speaking");
+    else setOrbState("idle");
+  }
 
-    recognition.onresult = (event) => {
-      let interim = "";
-      let final = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          final += result[0].transcript;
-        } else {
-          interim += result[0].transcript;
+  function showAlert(text) {
+    inlineAlert.textContent = text;
+    inlineAlert.hidden = false;
+  }
+
+  function clearAlert() {
+    inlineAlert.hidden = true;
+  }
+
+  function reportError(text) {
+    showAlert(text);
+    appendMessage("error", text);
+  }
+
+  // ---------- Visualizzatore audio microfono (aura reattiva mentre parla lo studente) ----------
+
+  let micStream = null;
+  let audioCtx = null;
+  let analyser = null;
+  let userAnimHandle = null;
+
+  async function startAudioVisualizer() {
+    if (audioCtx) return;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(micStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
         }
-      }
-      if (interim.trim()) {
-        showLiveTranscript(interim.trim());
-      }
-      if (final.trim()) {
-        clearLiveTranscript();
-        handleStudentAnswer(final.trim());
-      }
-    };
+        const rms = Math.sqrt(sum / data.length);
+        setAuraScale(1 + Math.min(rms * 5, 0.9));
+        userAnimHandle = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch (e) {
+      // Permesso negato o dispositivo non disponibile: l'aura resta statica,
+      // ma il riconoscimento vocale (permesso separato) puo' comunque funzionare.
+    }
+  }
 
-    recognition.onaudiostart = () => {
-      setStatus("In ascolto...", "listening");
-    };
+  function stopAudioVisualizer() {
+    if (userAnimHandle) cancelAnimationFrame(userAnimHandle);
+    userAnimHandle = null;
+    if (micStream) {
+      micStream.getTracks().forEach((t) => t.stop());
+      micStream = null;
+    }
+    if (audioCtx) {
+      audioCtx.close();
+      audioCtx = null;
+    }
+    analyser = null;
+    setAuraScale(1);
+  }
 
-    recognition.onspeechstart = () => {
-      setStatus("Ti sento, continua...", "listening");
-    };
+  // ---------- Animazione aura mentre parla l'AI (basata sui confini di parola) ----------
 
-    recognition.onspeechend = () => {
-      setStatus("Sto elaborando...", "thinking");
-    };
+  let aiAnimHandle = null;
+  let aiPulseBoost = 0;
 
-    recognition.onerror = (event) => {
-      clearLiveTranscript();
-      setListening(false);
-      setStatus("Pronto");
-      const message = describeRecognitionError(event.error);
-      if (message) appendMessage("error", message);
+  function startAiSpeakingAnimation() {
+    let t = 0;
+    const tick = () => {
+      t += 0.12;
+      aiPulseBoost *= 0.85;
+      const base = 1.15 + Math.sin(t) * 0.1 + aiPulseBoost;
+      setAuraScale(base);
+      aiAnimHandle = requestAnimationFrame(tick);
     };
+    tick();
+  }
 
-    recognition.onend = () => {
-      clearLiveTranscript();
-      setListening(false);
-    };
-  } else {
-    micBtn.hidden = true;
-    speechWarning.hidden = false;
+  function stopAiSpeakingAnimation() {
+    if (aiAnimHandle) cancelAnimationFrame(aiAnimHandle);
+    aiAnimHandle = null;
+    aiPulseBoost = 0;
+    setAuraScale(1);
+  }
+
+  function bumpAuraPulse() {
+    aiPulseBoost = 0.25;
+  }
+
+  // ---------- Riconoscimento vocale ----------
+
+  function resetSilenceTimer() {
+    if (silenceTimer) clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      if (isListening) recognition.stop();
+    }, SILENCE_TIMEOUT_MS);
   }
 
   function describeRecognitionError(code) {
@@ -130,9 +186,66 @@
     }
   }
 
-  function setStatus(text, kind) {
-    statusBadge.textContent = text;
-    statusBadge.className = "status-badge" + (kind ? " " + kind : "");
+  if (supportsRecognition) {
+    recognition = new SpeechRecognitionImpl();
+    recognition.lang = "it-IT";
+    // continuous=true: il riconoscimento non si interrompe da solo alla prima
+    // pausa. Decidiamo noi quando lo studente ha finito, con un timer di
+    // silenzio (SILENCE_TIMEOUT_MS) che tollera piccole pause o "ehm".
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          accumulatedFinal += result[0].transcript;
+        }
+      }
+      resetSilenceTimer();
+    };
+
+    recognition.onaudiostart = () => {
+      setStatus("In ascolto...", "listening");
+      startAudioVisualizer();
+    };
+
+    recognition.onspeechstart = () => {
+      setStatus("Ti sento, continua...", "listening");
+    };
+
+    recognition.onspeechend = () => {
+      setStatus("Sto elaborando...", "thinking");
+    };
+
+    recognition.onerror = (event) => {
+      stopAudioVisualizer();
+      clearTimeout(silenceTimer);
+      clearTimeout(maxDurationTimer);
+      setListening(false);
+      setStatus("Pronto");
+      accumulatedFinal = "";
+      const message = describeRecognitionError(event.error);
+      if (message) reportError(message);
+    };
+
+    recognition.onend = () => {
+      stopAudioVisualizer();
+      clearTimeout(silenceTimer);
+      clearTimeout(maxDurationTimer);
+      setListening(false);
+      const answer = accumulatedFinal.trim();
+      accumulatedFinal = "";
+      if (answer) {
+        handleStudentAnswer(answer);
+      } else {
+        setStatus("Pronto");
+      }
+    };
+  } else {
+    micBtn.hidden = true;
+    speechWarning.hidden = false;
   }
 
   function setListening(active) {
@@ -157,6 +270,8 @@
     return div;
   }
 
+  // ---------- Sintesi vocale ----------
+
   function speak(text) {
     return new Promise((resolve) => {
       if (!supportsSynthesis) {
@@ -164,9 +279,10 @@
         return;
       }
       const synth = window.speechSynthesis;
+      const spoken = sanitizeForSpeech(text);
 
       const doSpeak = () => {
-        const utterance = new SpeechSynthesisUtterance(text);
+        const utterance = new SpeechSynthesisUtterance(spoken);
         utterance.lang = "it-IT";
         const voices = synth.getVoices();
         const itVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("it"));
@@ -176,11 +292,16 @@
         const finish = () => {
           if (resolved) return;
           resolved = true;
+          stopAiSpeakingAnimation();
           setStatus("Pronto");
           resolve();
         };
 
-        utterance.onstart = () => setStatus("Sta parlando...", "speaking");
+        utterance.onstart = () => {
+          setStatus("Sta parlando...", "speaking");
+          startAiSpeakingAnimation();
+        };
+        utterance.onboundary = () => bumpAuraPulse();
         utterance.onend = finish;
         utterance.onerror = finish;
         synth.speak(utterance);
@@ -188,7 +309,7 @@
         // Alcune versioni di Chrome non emettono mai onend/onerror in certi
         // casi (bug noto): sblocchiamo comunque l'interfaccia dopo un timeout
         // di sicurezza proporzionale alla lunghezza del testo.
-        setTimeout(finish, Math.max(4000, text.length * 90));
+        setTimeout(finish, Math.max(4000, spoken.length * 90));
       };
 
       // Chiamare speak() subito dopo cancel() puo' non produrre audio su
@@ -212,6 +333,61 @@
     const unlock = new SpeechSynthesisUtterance(" ");
     unlock.volume = 0;
     window.speechSynthesis.speak(unlock);
+  }
+
+  // Converte notazione LaTeX/markdown residua in italiano leggibile ad alta
+  // voce (rete di sicurezza: il system prompt chiede gia' a DeepSeek di non
+  // usarla, ma i modelli non sono affidabili al 100%).
+  function sanitizeForSpeech(text) {
+    let t = text;
+
+    t = t.replace(/\\\[|\\\]|\\\(|\\\)/g, "");
+    t = t.replace(/\$\$?/g, "");
+
+    t = t.replace(/\\d?frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1 fratto $2");
+    t = t.replace(/\\sqrt\{([^{}]*)\}/g, "radice quadrata di $1");
+
+    t = t.replace(/\^\{?2\}?/g, " al quadrato");
+    t = t.replace(/\^\{?3\}?/g, " al cubo");
+    t = t.replace(/\^\{?([^\s{}]+)\}?/g, " alla $1");
+    t = t.replace(/_\{?([^\s{}]+)\}?/g, " con indice $1");
+
+    const replacements = [
+      [/\\times/g, " per "],
+      [/\\cdot/g, " per "],
+      [/\\div/g, " diviso "],
+      [/\\pm/g, " piu' o meno "],
+      [/\\leq/g, " minore o uguale a "],
+      [/\\geq/g, " maggiore o uguale a "],
+      [/\\neq/g, " diverso da "],
+      [/\\approx/g, " circa uguale a "],
+      [/\\rightarrow/g, " tende a "],
+      [/\\to/g, " tende a "],
+      [/\\infty/g, " infinito "],
+      [/\\pi/g, " pi greco "],
+      [/\\alpha/g, " alfa "],
+      [/\\beta/g, " beta "],
+      [/\\gamma/g, " gamma "],
+      [/\\delta/g, " delta "],
+      [/\\theta/g, " theta "],
+      [/\\sum/g, " sommatoria "],
+      [/\\int/g, " integrale "],
+    ];
+    for (const [pattern, replacement] of replacements) {
+      t = t.replace(pattern, replacement);
+    }
+
+    t = t.replace(/\*\*([^*]+)\*\*/g, "$1");
+    t = t.replace(/\*([^*]+)\*/g, "$1");
+    t = t.replace(/`([^`]+)`/g, "$1");
+
+    t = t.replace(/[{}]/g, "");
+    t = t.replace(/\\/g, "");
+    t = t.replace(/(\d)\/(\d)/g, "$1 su $2");
+
+    t = t.replace(/\s{2,}/g, " ").trim();
+
+    return t;
   }
 
   async function callAI(newMessages) {
@@ -289,7 +465,7 @@
       setBusy(false);
       await speak(reply);
     } catch (err) {
-      appendMessage("error", "Errore: " + err.message + ". Riprova.");
+      reportError("Errore: " + err.message + ". Riprova.");
       setStatus("Pronto");
       setBusy(false);
     }
@@ -297,6 +473,7 @@
 
   function handleStudentAnswer(text) {
     if (busy || finished) return;
+    clearAlert();
     appendMessage("user", text);
     requestNextStep(text);
   }
@@ -307,10 +484,15 @@
       recognition.stop();
       return;
     }
+    clearAlert();
+    accumulatedFinal = "";
     try {
-      setStatus("In ascolto...", "listening");
       setListening(true);
+      setStatus("In ascolto...", "listening");
       recognition.start();
+      maxDurationTimer = setTimeout(() => {
+        if (isListening) recognition.stop();
+      }, MAX_RECORDING_MS);
     } catch (e) {
       // Se il riconoscimento risultava gia' avviato (stato incoerente in
       // alcuni browser), lo fermiamo e riproviamo una volta.
@@ -320,9 +502,14 @@
       } catch (e2) {
         setListening(false);
         setStatus("Pronto");
-        appendMessage("error", "Impossibile avviare il microfono. Ricarica la pagina e riprova.");
+        reportError("Impossibile avviare il microfono. Ricarica la pagina e riprova.");
       }
     }
+  });
+
+  transcriptToggleBtn.addEventListener("click", () => {
+    transcriptEl.hidden = !transcriptEl.hidden;
+    transcriptToggleBtn.textContent = transcriptEl.hidden ? "Trascrivi" : "Nascondi trascrizione";
   });
 
   textForm.addEventListener("submit", (e) => {
@@ -355,6 +542,9 @@
 
     interviewTopic.textContent = topic;
     transcriptEl.innerHTML = "";
+    transcriptEl.hidden = true;
+    transcriptToggleBtn.textContent = "Trascrivi";
+    clearAlert();
     setupPanel.hidden = true;
     resultPanel.hidden = true;
     interviewPanel.hidden = false;
@@ -369,7 +559,7 @@
       setBusy(false);
       await speak(reply);
     } catch (err) {
-      appendMessage("error", "Errore: " + err.message + ". Riprova.");
+      reportError("Errore: " + err.message + ". Riprova.");
       setStatus("Pronto");
       setBusy(false);
     }
@@ -382,6 +572,7 @@
     questionCount = 0;
     finished = false;
     transcriptEl.innerHTML = "";
+    clearAlert();
     resultPanel.hidden = true;
     interviewPanel.hidden = true;
     setupPanel.hidden = false;
@@ -409,6 +600,7 @@
       "- punto 3 (facoltativo)",
       "- Non aggiungere altro testo dopo la valutazione finale.",
       "- Rispondi sempre in italiano, con tono incoraggiante ma onesto.",
+      "- Le tue risposte verranno lette ad alta voce da un sintetizzatore vocale: non usare MAI notazione LaTeX, markdown, backslash o simboli come ^, _, \\frac, \\sqrt, asterischi per il grassetto. Scrivi ogni formula o simbolo matematico per esteso, in italiano colloquiale (es. 'x al quadrato' invece di x^2, 'la radice quadrata di 16' invece di \\sqrt{16}, 'due terzi' invece di 2/3, 'a fratto b' invece di \\frac{a}{b}).",
     ].join("\n");
   }
 

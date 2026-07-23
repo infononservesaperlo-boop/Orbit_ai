@@ -44,24 +44,34 @@
     <section id="interview-panel" class="panel" hidden>
       <div class="interview-head">
         <h2 id="interview-topic">Argomento</h2>
-        <span id="status-badge" class="status-badge">Pronto</span>
       </div>
 
-      <div id="transcript" class="transcript" aria-live="polite"></div>
+      <div class="orb-stage">
+        <div class="orb-wrap idle" id="orb-wrap">
+          <div class="orb-aura" id="orb-aura"></div>
+          <div class="orb-core">O</div>
+        </div>
+        <p id="status-line" class="status-line">Pronto</p>
+        <p id="inline-alert" class="inline-alert" hidden></p>
+      </div>
 
       <div class="controls">
         <button id="mic-btn" class="btn btn-mic" title="Parla">
           <span class="mic-icon" aria-hidden="true"></span>
           <span class="mic-label">Parla</span>
         </button>
-        <form id="text-form" class="text-form">
-          <input id="text-input" type="text" placeholder="Scrivi la tua risposta..." autocomplete="off" />
-          <button type="submit" class="btn btn-secondary">Invia</button>
-        </form>
+        <button id="transcript-toggle-btn" type="button" class="btn btn-secondary btn-transcript">Trascrivi</button>
       </div>
+
+      <form id="text-form" class="text-form">
+        <input id="text-input" type="text" placeholder="Scrivi la tua risposta..." autocomplete="off" />
+        <button type="submit" class="btn btn-secondary">Invia</button>
+      </form>
       <p id="speech-warning" class="warning-text" hidden>
-        Il riconoscimento vocale non è supportato in questo browser: usa la tastiera qui sopra per rispondere.
+        Il riconoscimento vocale non è supportato in questo browser: usa la tastiera qui sotto per rispondere.
       </p>
+
+      <div id="transcript" class="transcript" hidden aria-live="polite"></div>
     </section>
 
     <!-- FINAL EVALUATION -->
