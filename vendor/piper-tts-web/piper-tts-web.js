@@ -181,13 +181,30 @@ async function readBlob(url) {
   }
 }
 async function fetchBlob(url, callback) {
-  var _a;
   const res = await fetch(url);
-  const reader = (_a = res.body) == null ? void 0 : _a.getReader();
+  if (!res.ok) {
+    throw new Error(`Richiesta fallita (${res.status}) per ${url}`);
+  }
   const contentLength = +(res.headers.get("Content-Length") ?? 0);
+  // PATCH (Orbit Ripetizioni): alcuni browser (Safari, in certe condizioni
+  // legate a redirect/CORS) non espongono res.body come stream leggibile.
+  // Il codice originale, in quel caso, restituiva silenziosamente un Blob
+  // vuoto invece di un errore, corrompendo la cache locale senza alcun
+  // segnale (vedi vendor/piper-tts-web/NOTICE.md). Qui rileviamo il caso e
+  // scarichiamo il contenuto in un colpo solo con res.blob(), che non
+  // dipende dallo streaming ed e' supportato ovunque.
+  if (!res.body || typeof res.body.getReader !== "function") {
+    const wholeBlob = await res.blob();
+    if (wholeBlob.size === 0) {
+      throw new Error(`Download vuoto per ${url}`);
+    }
+    callback == null ? void 0 : callback({ url, total: wholeBlob.size, loaded: wholeBlob.size });
+    return wholeBlob;
+  }
+  const reader = res.body.getReader();
   let receivedLength = 0;
   let chunks = [];
-  while (reader) {
+  while (true) {
     const { done, value } = await reader.read();
     if (done) {
       break;
@@ -200,7 +217,11 @@ async function fetchBlob(url, callback) {
       loaded: receivedLength
     });
   }
-  return new Blob(chunks, { type: res.headers.get("Content-Type") ?? void 0 });
+  const blob = new Blob(chunks, { type: res.headers.get("Content-Type") ?? void 0 });
+  if (blob.size === 0 && contentLength > 0) {
+    throw new Error(`Download troncato per ${url} (attesi ${contentLength} byte, ricevuti 0)`);
+  }
+  return blob;
 }
 function pcm2wav(buffer, numChannels, sampleRate) {
   const bufferLength = buffer.length;
