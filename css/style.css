@@ -519,7 +519,7 @@ h3 {
   color: var(--text);
   border: 1px solid var(--border-soft);
   padding: 0.8rem;
-  flex: 2;
+  flex: 1;
 }
 
 .btn-mic:hover:not(:disabled) {
@@ -531,10 +531,6 @@ h3 {
   color: #1a1206;
   border-color: transparent;
   box-shadow: 0 0 0 4px rgba(242, 129, 29, 0.18);
-}
-
-.btn-transcript {
-  flex: 1;
 }
 
 .mic-icon {

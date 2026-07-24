@@ -74,7 +74,6 @@
   const statusLine = document.getElementById("status-line");
   const inlineAlert = document.getElementById("inline-alert");
   const transcriptEl = document.getElementById("transcript");
-  const transcriptToggleBtn = document.getElementById("transcript-toggle-btn");
   const micBtn = document.getElementById("mic-btn");
   const textForm = document.getElementById("text-form");
   const textInput = document.getElementById("text-input");
@@ -598,11 +597,6 @@
     }
   });
 
-  transcriptToggleBtn.addEventListener("click", () => {
-    transcriptEl.hidden = !transcriptEl.hidden;
-    transcriptToggleBtn.textContent = transcriptEl.hidden ? "Trascrivi" : "Nascondi trascrizione";
-  });
-
   textForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = textInput.value.trim();
@@ -645,8 +639,6 @@
 
     interviewTopic.textContent = subject ? `${subject} · ${topic}` : topic;
     transcriptEl.innerHTML = "";
-    transcriptEl.hidden = true;
-    transcriptToggleBtn.textContent = "Trascrivi";
     clearAlert();
     setupPanel.hidden = true;
     resultPanel.hidden = true;
