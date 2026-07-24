@@ -388,23 +388,31 @@
 
   function loadPiperModule() {
     if (!piperModulePromise) {
-      piperModulePromise = import("/vendor/piper-tts-web/piper-tts-web.js").then((piper) => {
-        // Avvia subito il download del modello vocale (se non gia' in
-        // cache) in parallelo con la prima domanda dell'AI, cosi' non si
-        // somma al tempo di attesa complessivo.
-        piper
-          .download(PIPER_VOICE_ID, (progress) => {
-            if (progress && progress.total) {
-              const pct = Math.round((progress.loaded / progress.total) * 100);
-              setStatus(`Scarico la voce (${pct}%)...`, "thinking");
-            }
-          })
-          .catch(() => {
-            // Se il pre-download fallisce, il predict() successivo
-            // ritentera' comunque il download al bisogno.
-          });
-        return piper;
-      });
+      piperModulePromise = import("/vendor/piper-tts-web/piper-tts-web.js")
+        .then((piper) => {
+          console.log("[Piper] modulo caricato correttamente.");
+          // Avvia subito il download del modello vocale (se non gia' in
+          // cache) in parallelo con la prima domanda dell'AI, cosi' non si
+          // somma al tempo di attesa complessivo.
+          piper
+            .download(PIPER_VOICE_ID, (progress) => {
+              if (progress && progress.total) {
+                const pct = Math.round((progress.loaded / progress.total) * 100);
+                setStatus(`Scarico la voce (${pct}%)...`, "thinking");
+              }
+            })
+            .then(() => console.log("[Piper] modello vocale scaricato/gia' in cache."))
+            .catch((err) => {
+              // Se il pre-download fallisce, il predict() successivo
+              // ritentera' comunque il download al bisogno.
+              console.warn("[Piper] pre-download del modello fallito (si ritentera' al bisogno):", err);
+            });
+          return piper;
+        })
+        .catch((err) => {
+          console.error("[Piper] impossibile caricare il modulo /vendor/piper-tts-web/piper-tts-web.js:", err);
+          throw err;
+        });
     }
     return piperModulePromise;
   }
@@ -434,7 +442,12 @@
         el.muted = false;
       });
 
-    if (piperTtsAvailable) loadPiperModule();
+    if (piperTtsAvailable) {
+      loadPiperModule().catch(() => {
+        // Gia' loggato in loadPiperModule(); qui evitiamo solo la promise
+        // non gestita. speak() decidera' se e quando passare al fallback.
+      });
+    }
   }
 
   async function generatePiperAudio(text) {
@@ -486,6 +499,8 @@
     });
   }
 
+  let piperFallbackNotified = false;
+
   async function speak(text) {
     const spoken = sanitizeForSpeech(text);
     if (!spoken) return;
@@ -498,8 +513,14 @@
       } catch (err) {
         // Piper non e' disponibile (browser non supportato, rete bloccata,
         // ecc.): niente panico, si prosegue con la voce del browser per il
-        // resto della sessione.
+        // resto della sessione. Logghiamo pero' il motivo esatto, altrimenti
+        // e' impossibile capire perche' senza aprire i DevTools.
+        console.error("[Piper] generazione/riproduzione audio fallita, passo alla voce del browser:", err);
         piperTtsAvailable = false;
+        if (!piperFallbackNotified) {
+          piperFallbackNotified = true;
+          showAlert("Voce avanzata non disponibile (vedi console per i dettagli): uso la voce del browser.");
+        }
       }
     }
     await speakWithBrowserSynthesis(spoken);
