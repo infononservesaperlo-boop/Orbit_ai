@@ -101,6 +101,43 @@
   let finished = false;
   let busy = false;
 
+  // Il conteggio delle domande NON si affida solo al modello: gli LLM
+  // tendono a perdere il conto attraverso una conversazione lunga,
+  // specialmente distinguendo "domanda nuova" da "tentativo con indizio
+  // sulla stessa domanda". Il modello e' istruito a far precedere ogni
+  // domanda da una riga "STATO n=... tot=... tent=..." che qui leggiamo per
+  // tenere noi il conto reale, e quando il totale configurato e' gia' stato
+  // raggiunto rinforziamo l'istruzione ad ogni turno successivo invece di
+  // sperare che il modello se lo ricordi da solo.
+  let totalQuestionsConfigured = 1;
+  let lastQuestionNumber = 0;
+  let mustWrapUp = false;
+
+  const STATO_TAG_RE = /^STATO\s+n=(\d+)\s+tot=(\d+)\s+tent=(\d+)\s*\n?/i;
+
+  function parseStatoTag(reply) {
+    const match = reply.match(STATO_TAG_RE);
+    if (!match) {
+      console.warn("[Domande] riga STATO mancante nella risposta dell'AI, non posso aggiornare il conteggio.");
+      return { display: reply, n: null };
+    }
+    return {
+      display: reply.slice(match[0].length),
+      n: parseInt(match[1], 10),
+    };
+  }
+
+  function buildWrapUpReminder() {
+    return (
+      `\n\n[Promemoria automatico del sistema: questa era gia' l'ultima domanda prevista ` +
+      `(numero ${lastQuestionNumber} di ${totalQuestionsConfigured} in totale). Non fare NESSUNA nuova domanda, ` +
+      `a prescindere da come e' andata la risposta appena data. Se e' sbagliata o incompleta e non hai ancora usato ` +
+      `3 tentativi su questa domanda, dai un indizio e ripeti SOLO questa stessa domanda (stesso numero ` +
+      `${lastQuestionNumber}, tentativo aumentato di 1, sempre con la riga STATO). Altrimenti fornisci SUBITO la ` +
+      `valutazione finale nel formato richiesto, senza riga STATO e senza fare altre domande.]`
+    );
+  }
+
   const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
   const supportsRecognition = !!SpeechRecognitionImpl;
   const supportsSynthesis = "speechSynthesis" in window;
@@ -534,7 +571,8 @@
 
   async function requestNextStep(userReplyText) {
     if (userReplyText !== null) {
-      messages.push({ role: "user", content: userReplyText });
+      const apiContent = mustWrapUp ? userReplyText + buildWrapUpReminder() : userReplyText;
+      messages.push({ role: "user", content: apiContent });
     }
 
     setBusy(true);
@@ -550,10 +588,16 @@
         return;
       }
 
+      const { display, n } = parseStatoTag(reply);
+      if (n !== null) {
+        lastQuestionNumber = n;
+        mustWrapUp = lastQuestionNumber >= totalQuestionsConfigured;
+      }
+
       questionCount += 1;
-      appendMessage("ai", reply);
+      appendMessage("ai", display);
       setBusy(false);
-      await speak(reply);
+      await speak(display);
     } catch (err) {
       reportError("Errore: " + err.message + ". Riprova.");
       setStatus("Pronto");
@@ -636,6 +680,9 @@
     ];
     questionCount = 0;
     finished = false;
+    totalQuestionsConfigured = Number(selectedNumQuestions) || 1;
+    lastQuestionNumber = 0;
+    mustWrapUp = false;
 
     interviewTopic.textContent = subject ? `${subject} · ${topic}` : topic;
     transcriptEl.innerHTML = "";
@@ -649,10 +696,17 @@
     try {
       const reply = await callAI(messages);
       messages.push({ role: "assistant", content: reply });
+
+      const { display, n } = parseStatoTag(reply);
+      if (n !== null) {
+        lastQuestionNumber = n;
+        mustWrapUp = lastQuestionNumber >= totalQuestionsConfigured;
+      }
+
       questionCount += 1;
-      appendMessage("ai", reply);
+      appendMessage("ai", display);
       setBusy(false);
-      await speak(reply);
+      await speak(display);
     } catch (err) {
       reportError("Errore: " + err.message + ". Riprova.");
       setStatus("Pronto");
@@ -667,6 +721,8 @@
     messages = [];
     questionCount = 0;
     finished = false;
+    lastQuestionNumber = 0;
+    mustWrapUp = false;
     transcriptEl.innerHTML = "";
     clearAlert();
     resultPanel.hidden = true;
@@ -725,6 +781,13 @@
       "- punto 2",
       "- punto 3 (facoltativo)",
       "- Non aggiungere altro testo dopo la valutazione finale.",
+      "FORMATO OBBLIGATORIO PER TENERE IL CONTO (fondamentale, un sistema automatico lo legge):",
+      `- Ogni volta che fai una domanda (nuova oppure ripetuta con indizio), la primissima riga della risposta deve essere ESATTAMENTE nel formato: STATO n=<numero della domanda corrente, da 1 a ${totalQuestions}> tot=${totalQuestions} tent=<numero del tentativo su questa domanda, da 1 a 3>`,
+      "  Esempio prima domanda: STATO n=1 tot=" + totalQuestions + " tent=1",
+      "  Esempio indizio sulla stessa domanda: STATO n=1 tot=" + totalQuestions + " tent=2",
+      "  Poi vai a capo e scrivi normalmente feedback/domanda.",
+      "- Quando fornisci la valutazione finale NON scrivere nessuna riga STATO: inizia direttamente con 'VALUTAZIONE FINALE'.",
+      `- Il numero totale di domande e' fisso a ${totalQuestions} e non puoi superarlo per nessun motivo, anche se ti sembra di poter fare altre domande interessanti.`,
       "- Rispondi sempre in italiano.",
       "- Le tue risposte verranno lette ad alta voce da un sintetizzatore vocale: non usare MAI notazione LaTeX, markdown, backslash o simboli come ^, _, \\frac, \\sqrt, asterischi per il grassetto. Scrivi ogni formula o simbolo matematico per esteso, in italiano colloquiale (es. 'x al quadrato' invece di x^2, 'la radice quadrata di 16' invece di \\sqrt{16}, 'due terzi' invece di 2/3, 'a fratto b' invece di \\frac{a}{b}).",
     ].join("\n");
