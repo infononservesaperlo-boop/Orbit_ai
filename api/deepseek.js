@@ -47,10 +47,17 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         // "deepseek-chat" viene dismesso il 24/07/2026: deepseek-v4-flash e'
-        // il modello che lo sostituisce (stessa modalita' "non-thinking").
+        // il modello che lo sostituisce. Su V4 il "thinking mode" e' attivo
+        // di default: il modello spende token a ragionare internamente prima
+        // di rispondere, e con risposte brevi puo' esaurire il budget prima
+        // di scrivere il vero contenuto, restituendo "content" vuoto. Lo
+        // disabilitiamo esplicitamente per ottenere lo stesso comportamento
+        // diretto di "deepseek-chat" (e per far funzionare "temperature",
+        // ignorato in modalita' thinking).
         model: "deepseek-v4-flash",
         messages,
         temperature: 0.7,
+        thinking: { type: "disabled" },
       }),
     });
 
@@ -61,10 +68,16 @@ module.exports = async function handler(req, res) {
       return res.status(upstream.status).json({ error: message });
     }
 
-    const reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    const choice = data.choices && data.choices[0];
+    const message = choice && choice.message;
+    // Rete di sicurezza: se "content" fosse comunque vuoto (es. thinking
+    // mode riattivato in futuro), proviamo a recuperare qualcosa da
+    // "reasoning_content" invece di fallire subito.
+    const reply = (message && message.content) || (message && message.reasoning_content);
 
     if (!reply) {
-      return res.status(502).json({ error: "Risposta AI vuota o inattesa" });
+      const finishReason = (choice && choice.finish_reason) || "sconosciuto";
+      return res.status(502).json({ error: `Risposta AI vuota o inattesa (finish_reason: ${finishReason})` });
     }
 
     return res.status(200).json({ reply });
