@@ -338,198 +338,12 @@
 
   // ---------- Sintesi vocale ----------
   //
-  // Voce principale: Piper TTS (voce italiana "Paola"), eseguita interamente
-  // nel browser via WebAssembly/ONNX Runtime - nessuna chiave API, nessun
-  // account, nessun costo. Il modello (~63MB) viene scaricato una sola volta
-  // e resta in cache sul dispositivo (Origin Private File System). Se Piper
-  // non si carica per qualche motivo (browser non supportato, rete bloccata,
-  // ecc.) si torna automaticamente alla sintesi vocale nativa del browser,
-  // cosi' l'app funziona comunque.
-
-  const PIPER_VOICE_ID = "it_IT-paola-medium";
-
-  let ttsAudioEl = null;
-  let ttsAudioCtx = null;
-  let ttsAnalyser = null;
-  let piperTtsAvailable = true;
-  let piperModulePromise = null;
-
-  // Un WAV silenzioso di pochi campioni, usato solo per "sbloccare" la
-  // riproduzione audio programmatica su Safari/iOS (che richiede che il primo
-  // play() su un elemento/contesto avvenga in modo sincrono dentro un gesto
-  // utente, come il click su "Inizia interrogazione").
-  const SILENT_WAV_DATA_URI =
-    "data:audio/wav;base64,UklGRjQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YRAAAAAAAAAAAAAAAAAAAAAAAAAA";
-
-  function ensureTtsAudioEl() {
-    if (!ttsAudioEl) {
-      ttsAudioEl = new Audio();
-    }
-    return ttsAudioEl;
-  }
-
-  function visualizeAnalyser(analyser) {
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    let handle;
-    const tick = () => {
-      analyser.getByteTimeDomainData(data);
-      let sum = 0;
-      for (let i = 0; i < data.length; i++) {
-        const v = (data[i] - 128) / 128;
-        sum += v * v;
-      }
-      const rms = Math.sqrt(sum / data.length);
-      setAuraScale(1 + Math.min(rms * 5, 0.9));
-      handle = requestAnimationFrame(tick);
-    };
-    tick();
-    return () => cancelAnimationFrame(handle);
-  }
-
-  function loadPiperModule() {
-    if (!piperModulePromise) {
-      // Nota: NON avviamo qui anche un piper.download() proattivo in
-      // parallelo a predict(). Farlo (come in una versione precedente)
-      // crea due scritture concorrenti sulla stessa cache (Origin Private
-      // File System), che su alcuni browser (Safari in particolare) puo'
-      // corrompere il file scaricato: predict() lo rilegge poi sempre
-      // vuoto/troncato ("JSON Parse error: Unexpected EOF") e resta rotto
-      // per sempre finche' la cache non viene pulita manualmente.
-      piperModulePromise = import("/vendor/piper-tts-web/piper-tts-web.js")
-        .then((piper) => {
-          console.log("[Piper] modulo caricato correttamente.");
-          return piper;
-        })
-        .catch((err) => {
-          console.error("[Piper] impossibile caricare il modulo /vendor/piper-tts-web/piper-tts-web.js:", err);
-          throw err;
-        });
-    }
-    return piperModulePromise;
-  }
-
-  function unlockTtsPlayback() {
-    const el = ensureTtsAudioEl();
-    try {
-      if (!ttsAudioCtx) {
-        ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const sourceNode = ttsAudioCtx.createMediaElementSource(el);
-        ttsAnalyser = ttsAudioCtx.createAnalyser();
-        ttsAnalyser.fftSize = 512;
-        sourceNode.connect(ttsAnalyser);
-        ttsAnalyser.connect(ttsAudioCtx.destination);
-      }
-      ttsAudioCtx.resume();
-    } catch (e) {
-      // Se il grafo Web Audio non si crea, l'audio suonera' comunque tramite
-      // l'elemento <audio> diretto: solo l'aura reattiva non funzionera' (si
-      // torna all'animazione a impulsi di riserva in startAiSpeakingAnimation).
-    }
-    el.muted = true;
-    el.src = SILENT_WAV_DATA_URI;
-    el.play()
-      .catch(() => {})
-      .finally(() => {
-        el.muted = false;
-      });
-
-    if (piperTtsAvailable) {
-      loadPiperModule().catch(() => {
-        // Gia' loggato in loadPiperModule(); qui evitiamo solo la promise
-        // non gestita. speak() decidera' se e quando passare al fallback.
-      });
-    }
-  }
-
-  async function generatePiperAudio(text) {
-    const piper = await loadPiperModule();
-    const onProgress = (progress) => {
-      if (progress && progress.total) {
-        const pct = Math.round((progress.loaded / progress.total) * 100);
-        setStatus(`Scarico la voce (${pct}%)...`, "thinking");
-      }
-    };
-    try {
-      return await piper.predict({ text, voiceId: PIPER_VOICE_ID }, onProgress);
-    } catch (err) {
-      // Un file corrotto/troncato rimasto in cache (es. da un download
-      // interrotto) farebbe fallire predict() per sempre allo stesso modo:
-      // puliamo la cache di Piper e ritentiamo una sola volta prima di
-      // arrenderci e passare alla voce del browser.
-      console.warn("[Piper] predict() fallito, pulisco la cache e riprovo una volta:", err);
-      try {
-        await piper.flush();
-      } catch (flushErr) {
-        console.warn("[Piper] pulizia cache fallita:", flushErr);
-      }
-      return await piper.predict({ text, voiceId: PIPER_VOICE_ID }, onProgress);
-    }
-  }
-
-  function playTtsBlob(blob) {
-    return new Promise((resolve, reject) => {
-      const el = ensureTtsAudioEl();
-      const url = URL.createObjectURL(blob);
-      el.src = url;
-
-      let stopVisualizer = null;
-
-      el.onplay = () => {
-        setStatus("Sta parlando...", "speaking");
-        if (ttsAnalyser) {
-          if (ttsAudioCtx.state === "suspended") ttsAudioCtx.resume();
-          stopVisualizer = visualizeAnalyser(ttsAnalyser);
-        } else {
-          startAiSpeakingAnimation();
-        }
-      };
-
-      const finish = () => {
-        if (stopVisualizer) stopVisualizer();
-        else stopAiSpeakingAnimation();
-        setStatus("Pronto");
-        URL.revokeObjectURL(url);
-        resolve();
-      };
-
-      el.onended = finish;
-      el.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("Riproduzione audio TTS fallita"));
-      };
-
-      el.play().catch((err) => {
-        URL.revokeObjectURL(url);
-        reject(err);
-      });
-    });
-  }
-
-  let piperFallbackNotified = false;
+  // Sintesi vocale nativa del browser (SpeechSynthesis). Qualita' variabile
+  // a seconda del dispositivo/OS, ma gratuita e senza dipendenze esterne.
 
   async function speak(text) {
     const spoken = sanitizeForSpeech(text);
     if (!spoken) return;
-
-    if (piperTtsAvailable) {
-      try {
-        const blob = await generatePiperAudio(spoken);
-        await playTtsBlob(blob);
-        return;
-      } catch (err) {
-        // Piper non e' disponibile (browser non supportato, rete bloccata,
-        // ecc.): niente panico, si prosegue con la voce del browser per il
-        // resto della sessione. Logghiamo pero' il motivo esatto, altrimenti
-        // e' impossibile capire perche' senza aprire i DevTools.
-        console.error("[Piper] generazione/riproduzione audio fallita, passo alla voce del browser:", err);
-        piperTtsAvailable = false;
-        if (!piperFallbackNotified) {
-          piperFallbackNotified = true;
-          const detail = (err && (err.message || String(err))) || "errore sconosciuto";
-          showAlert("Voce avanzata non disponibile: " + detail);
-        }
-      }
-    }
     await speakWithBrowserSynthesis(spoken);
   }
 
@@ -716,7 +530,6 @@
   }
 
   function stopAllSpeech() {
-    if (ttsAudioEl) ttsAudioEl.pause();
     if (supportsSynthesis) window.speechSynthesis.cancel();
   }
 
@@ -811,7 +624,6 @@
       return;
     }
     setupError.hidden = true;
-    unlockTtsPlayback();
     unlockSpeechSynthesis();
 
     const systemPrompt = buildSystemPrompt({

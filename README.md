@@ -17,14 +17,9 @@ testuale della conversazione è disponibile a richiesta tramite il pulsante
     solo su alcuni browser (bene su Chrome/Edge; **Firefox e Safari non
     supportano `SpeechRecognition`**) — in quel caso l'interfaccia mostra
     automaticamente un campo di testo come fallback per rispondere.
-  - La voce dell'AI usa **Piper TTS** (voce italiana "Paola"), un motore di
-    sintesi vocale neurale **open source ed eseguito interamente nel browser
-    dello studente** via WebAssembly/ONNX Runtime — nessuna chiave API,
-    nessun account cloud, nessun costo. I file della libreria sono in
-    `vendor/piper-tts-web/` (vedi sotto); se per qualche motivo non si carica
-    (browser non supportato, rete che blocca i CDN, ecc.) l'app torna
-    automaticamente alla sintesi vocale nativa del browser (`SpeechSynthesis`)
-    per non restare muta.
+  - La voce dell'AI usa la sintesi vocale nativa del browser
+    (`SpeechSynthesis`), gratuita e senza dipendenze esterne. La qualità
+    varia parecchio a seconda del dispositivo/OS/browser usato.
   - Un orb centrale con un'aura pulsante mostra visivamente se l'AI sta
     "parlando" (arancione) o se lo studente sta "parlando" (blu, reattiva al
     volume reale del microfono). Un pulsante "Trascrivi" mostra/nasconde la
@@ -41,48 +36,18 @@ server, come variabile d'ambiente su Vercel, e viene usata esclusivamente
 dalla funzione serverless in `api/deepseek.js`. Aprendo "Ispeziona elemento"
 nel browser non è in alcun modo visibile.
 
-### Piper TTS: come funziona (nessuna configurazione richiesta)
-
-Piper genera la voce **sul dispositivo dello studente**, non su un server:
-
-1. Al primo utilizzo, il browser scarica il modello vocale "Paola"
-   (**~63 MB**, una tantum) da Hugging Face, oltre al runtime ONNX
-   (`cdnjs.cloudflare.com`) e al fonemizzatore (`cdn.jsdelivr.net`) — tutti
-   servizi pubblici gratuiti, senza registrazione.
-2. Il modello resta in cache sul dispositivo (Origin Private File System):
-   le sessioni successive sullo stesso dispositivo/browser non lo riscaricano.
-3. Il download del modello parte in background non appena si clicca "Inizia
-   interrogazione", in parallelo con la prima domanda generata da DeepSeek,
-   per non allungare i tempi di attesa percepiti.
-
-Limiti da tenere presenti:
-- Il primo utilizzo richiede scaricare ~63 MB: su una connessione dati lenta
-  o limitata può richiedere qualche secondo/minuto la prima volta.
-- Gira sulla CPU del dispositivo dello studente: su telefoni molto datati
-  potrebbe essere più lento (ma il motore è comunque ottimizzato per girare
-  piu' veloce del tempo reale anche su hardware modesto).
-- Se la rete della scuola/casa blocca huggingface.co, cdnjs.cloudflare.com o
-  cdn.jsdelivr.net, Piper non si carica e si passa automaticamente alla voce
-  nativa del browser.
-
-I file `vendor/piper-tts-web/*.js` sono copiati (vendored, non tramite CDN)
-dal pacchetto npm `@mintplex-labs/piper-tts-web` (licenza MIT) — vedi
-`vendor/piper-tts-web/NOTICE.md` per i dettagli e i servizi esterni usati a
-runtime.
-
 ## Struttura del progetto
 
 ```
 .
-├── index.html                 # pagina unica del prototipo
-├── css/style.css               # stile navy/arancione
-├── js/app.js                    # logica: Web Speech API, Piper TTS, chiamate a /api/deepseek
-├── api/deepseek.js              # funzione serverless: proxy verso DeepSeek (chiave server-side)
-├── vendor/piper-tts-web/         # libreria Piper TTS (vendored, MIT, nessuna chiave richiesta)
-├── assets/orbit-mark.png         # logo
+├── index.html            # pagina unica del prototipo
+├── css/style.css          # stile navy/arancione
+├── js/app.js               # logica: Web Speech API, chiamate a /api/deepseek
+├── api/deepseek.js         # funzione serverless: proxy verso DeepSeek (chiave server-side)
+├── assets/orbit-mark.png   # logo
 ├── package.json
-├── .env.example                  # esempio variabili d'ambiente per sviluppo locale
-└── .gitignore                    # esclude .env e .vercel dal repository
+├── .env.example            # esempio variabili d'ambiente per sviluppo locale
+└── .gitignore              # esclude .env e .vercel dal repository
 ```
 
 ## Deploy su Vercel
@@ -97,8 +62,8 @@ runtime.
    - `DEEPSEEK_API_KEY` → la tua chiave API DeepSeek. Seleziona **Production**,
      **Preview** e **Development** (tutte e tre le spunte), così è disponibile
      sia in produzione sia nelle preview di eventuali branch/PR.
-   - Non serve nessun'altra variabile: la voce (Piper TTS) gira nel browser
-     dello studente, senza chiavi.
+   - Non serve nessun'altra variabile: la voce usa la sintesi vocale nativa
+     del browser dello studente, senza chiavi.
    - Dopo aver aggiunto o modificato una variabile, fai un **redeploy** (le
      variabili d'ambiente vengono applicate solo ai deploy successivi alla
      modifica).
