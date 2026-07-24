@@ -388,25 +388,16 @@
 
   function loadPiperModule() {
     if (!piperModulePromise) {
+      // Nota: NON avviamo qui anche un piper.download() proattivo in
+      // parallelo a predict(). Farlo (come in una versione precedente)
+      // crea due scritture concorrenti sulla stessa cache (Origin Private
+      // File System), che su alcuni browser (Safari in particolare) puo'
+      // corrompere il file scaricato: predict() lo rilegge poi sempre
+      // vuoto/troncato ("JSON Parse error: Unexpected EOF") e resta rotto
+      // per sempre finche' la cache non viene pulita manualmente.
       piperModulePromise = import("/vendor/piper-tts-web/piper-tts-web.js")
         .then((piper) => {
           console.log("[Piper] modulo caricato correttamente.");
-          // Avvia subito il download del modello vocale (se non gia' in
-          // cache) in parallelo con la prima domanda dell'AI, cosi' non si
-          // somma al tempo di attesa complessivo.
-          piper
-            .download(PIPER_VOICE_ID, (progress) => {
-              if (progress && progress.total) {
-                const pct = Math.round((progress.loaded / progress.total) * 100);
-                setStatus(`Scarico la voce (${pct}%)...`, "thinking");
-              }
-            })
-            .then(() => console.log("[Piper] modello vocale scaricato/gia' in cache."))
-            .catch((err) => {
-              // Se il pre-download fallisce, il predict() successivo
-              // ritentera' comunque il download al bisogno.
-              console.warn("[Piper] pre-download del modello fallito (si ritentera' al bisogno):", err);
-            });
           return piper;
         })
         .catch((err) => {
@@ -452,12 +443,27 @@
 
   async function generatePiperAudio(text) {
     const piper = await loadPiperModule();
-    return piper.predict({ text, voiceId: PIPER_VOICE_ID }, (progress) => {
+    const onProgress = (progress) => {
       if (progress && progress.total) {
         const pct = Math.round((progress.loaded / progress.total) * 100);
         setStatus(`Scarico la voce (${pct}%)...`, "thinking");
       }
-    });
+    };
+    try {
+      return await piper.predict({ text, voiceId: PIPER_VOICE_ID }, onProgress);
+    } catch (err) {
+      // Un file corrotto/troncato rimasto in cache (es. da un download
+      // interrotto) farebbe fallire predict() per sempre allo stesso modo:
+      // puliamo la cache di Piper e ritentiamo una sola volta prima di
+      // arrenderci e passare alla voce del browser.
+      console.warn("[Piper] predict() fallito, pulisco la cache e riprovo una volta:", err);
+      try {
+        await piper.flush();
+      } catch (flushErr) {
+        console.warn("[Piper] pulizia cache fallita:", flushErr);
+      }
+      return await piper.predict({ text, voiceId: PIPER_VOICE_ID }, onProgress);
+    }
   }
 
   function playTtsBlob(blob) {
