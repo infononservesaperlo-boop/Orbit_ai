@@ -338,15 +338,21 @@
 
   // ---------- Sintesi vocale ----------
   //
-  // Voce principale: Azure Speech (voce neurale, molto piu' naturale),
-  // tramite /api/tts. Se non disponibile (chiave non configurata, quota
-  // esaurita, errore di rete) si torna automaticamente alla sintesi vocale
-  // nativa del browser, cosi' l'app funziona comunque.
+  // Voce principale: Piper TTS (voce italiana "Paola"), eseguita interamente
+  // nel browser via WebAssembly/ONNX Runtime - nessuna chiave API, nessun
+  // account, nessun costo. Il modello (~63MB) viene scaricato una sola volta
+  // e resta in cache sul dispositivo (Origin Private File System). Se Piper
+  // non si carica per qualche motivo (browser non supportato, rete bloccata,
+  // ecc.) si torna automaticamente alla sintesi vocale nativa del browser,
+  // cosi' l'app funziona comunque.
+
+  const PIPER_VOICE_ID = "it_IT-paola-medium";
 
   let ttsAudioEl = null;
   let ttsAudioCtx = null;
   let ttsAnalyser = null;
-  let cloudTtsAvailable = true;
+  let piperTtsAvailable = true;
+  let piperModulePromise = null;
 
   // Un WAV silenzioso di pochi campioni, usato solo per "sbloccare" la
   // riproduzione audio programmatica su Safari/iOS (che richiede che il primo
@@ -380,6 +386,29 @@
     return () => cancelAnimationFrame(handle);
   }
 
+  function loadPiperModule() {
+    if (!piperModulePromise) {
+      piperModulePromise = import("/vendor/piper-tts-web/piper-tts-web.js").then((piper) => {
+        // Avvia subito il download del modello vocale (se non gia' in
+        // cache) in parallelo con la prima domanda dell'AI, cosi' non si
+        // somma al tempo di attesa complessivo.
+        piper
+          .download(PIPER_VOICE_ID, (progress) => {
+            if (progress && progress.total) {
+              const pct = Math.round((progress.loaded / progress.total) * 100);
+              setStatus(`Scarico la voce (${pct}%)...`, "thinking");
+            }
+          })
+          .catch(() => {
+            // Se il pre-download fallisce, il predict() successivo
+            // ritentera' comunque il download al bisogno.
+          });
+        return piper;
+      });
+    }
+    return piperModulePromise;
+  }
+
   function unlockTtsPlayback() {
     const el = ensureTtsAudioEl();
     try {
@@ -404,26 +433,25 @@
       .finally(() => {
         el.muted = false;
       });
+
+    if (piperTtsAvailable) loadPiperModule();
   }
 
-  async function fetchTtsAudio(text) {
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+  async function generatePiperAudio(text) {
+    const piper = await loadPiperModule();
+    return piper.predict({ text, voiceId: PIPER_VOICE_ID }, (progress) => {
+      if (progress && progress.total) {
+        const pct = Math.round((progress.loaded / progress.total) * 100);
+        setStatus(`Scarico la voce (${pct}%)...`, "thinking");
+      }
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Errore TTS (${res.status})`);
-    }
-    const data = await res.json();
-    return data.audioContent;
   }
 
-  function playTtsAudio(base64Mp3) {
+  function playTtsBlob(blob) {
     return new Promise((resolve, reject) => {
       const el = ensureTtsAudioEl();
-      el.src = "data:audio/mp3;base64," + base64Mp3;
+      const url = URL.createObjectURL(blob);
+      el.src = url;
 
       let stopVisualizer = null;
 
@@ -441,13 +469,20 @@
         if (stopVisualizer) stopVisualizer();
         else stopAiSpeakingAnimation();
         setStatus("Pronto");
+        URL.revokeObjectURL(url);
         resolve();
       };
 
       el.onended = finish;
-      el.onerror = () => reject(new Error("Riproduzione audio TTS fallita"));
+      el.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Riproduzione audio TTS fallita"));
+      };
 
-      el.play().catch(reject);
+      el.play().catch((err) => {
+        URL.revokeObjectURL(url);
+        reject(err);
+      });
     });
   }
 
@@ -455,16 +490,16 @@
     const spoken = sanitizeForSpeech(text);
     if (!spoken) return;
 
-    if (cloudTtsAvailable) {
+    if (piperTtsAvailable) {
       try {
-        const audioBase64 = await fetchTtsAudio(spoken);
-        await playTtsAudio(audioBase64);
+        const blob = await generatePiperAudio(spoken);
+        await playTtsBlob(blob);
         return;
       } catch (err) {
-        // La voce cloud non e' disponibile (chiave assente, quota esaurita,
-        // rete assente): niente panico, si prosegue con la voce del browser
-        // per il resto della sessione.
-        cloudTtsAvailable = false;
+        // Piper non e' disponibile (browser non supportato, rete bloccata,
+        // ecc.): niente panico, si prosegue con la voce del browser per il
+        // resto della sessione.
+        piperTtsAvailable = false;
       }
     }
     await speakWithBrowserSynthesis(spoken);

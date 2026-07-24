@@ -17,11 +17,14 @@ testuale della conversazione è disponibile a richiesta tramite il pulsante
     solo su alcuni browser (bene su Chrome/Edge; **Firefox e Safari non
     supportano `SpeechRecognition`**) — in quel caso l'interfaccia mostra
     automaticamente un campo di testo come fallback per rispondere.
-  - La voce dell'AI usa **Microsoft Azure Speech** (voce neurale italiana,
-    molto più naturale della sintesi vocale nativa del browser) tramite
-    `/api/tts`. Se la chiave non è configurata, la quota gratuita è esaurita
-    o c'è un errore di rete, l'app torna automaticamente alla sintesi vocale
-    nativa del browser (`SpeechSynthesis`) per non restare muta.
+  - La voce dell'AI usa **Piper TTS** (voce italiana "Paola"), un motore di
+    sintesi vocale neurale **open source ed eseguito interamente nel browser
+    dello studente** via WebAssembly/ONNX Runtime — nessuna chiave API,
+    nessun account cloud, nessun costo. I file della libreria sono in
+    `vendor/piper-tts-web/` (vedi sotto); se per qualche motivo non si carica
+    (browser non supportato, rete che blocca i CDN, ecc.) l'app torna
+    automaticamente alla sintesi vocale nativa del browser (`SpeechSynthesis`)
+    per non restare muta.
   - Un orb centrale con un'aura pulsante mostra visivamente se l'AI sta
     "parlando" (arancione) o se lo studente sta "parlando" (blu, reattiva al
     volume reale del microfono). Un pulsante "Trascrivi" mostra/nasconde la
@@ -29,56 +32,57 @@ testuale della conversazione è disponibile a richiesta tramite il pulsante
 - **Funzione serverless `api/deepseek.js`**:
   - Riceve dal frontend la cronologia della conversazione.
   - Inoltra la richiesta a DeepSeek (`https://api.deepseek.com/chat/completions`,
-    modello `deepseek-chat`) aggiungendo la chiave API letta dalla variabile
-    d'ambiente `DEEPSEEK_API_KEY`.
+    modello `deepseek-v4-flash`) aggiungendo la chiave API letta dalla
+    variabile d'ambiente `DEEPSEEK_API_KEY`.
   - Restituisce al frontend solo il testo della risposta dell'AI.
-- **Funzione serverless `api/tts.js`**:
-  - Riceve dal frontend il testo da pronunciare.
-  - Ottiene un token da Azure (`https://{regione}.api.cognitive.microsoft.com/sts/v1.0/issueToken`)
-    usando `AZURE_TTS_KEY`, poi inoltra il testo (come SSML) all'endpoint di
-    sintesi di Azure Speech (`https://{regione}.tts.speech.microsoft.com/cognitiveservices/v1`),
-    con la regione letta da `AZURE_TTS_REGION`.
-  - Restituisce al frontend l'audio in base64 (MP3), che viene riprodotto con
-    un elemento `<audio>`.
 
-**Le chiavi API non sono mai presenti nel codice frontend**: vivono solo lato
-server, come variabili d'ambiente su Vercel, e vengono usate esclusivamente
-dalle funzioni serverless in `api/`. Aprendo "Ispeziona elemento" nel browser
-non sono in alcun modo visibili.
+**La chiave DeepSeek non è mai presente nel codice frontend**: vive solo lato
+server, come variabile d'ambiente su Vercel, e viene usata esclusivamente
+dalla funzione serverless in `api/deepseek.js`. Aprendo "Ispeziona elemento"
+nel browser non è in alcun modo visibile.
 
-### Microsoft Azure Speech: come ottenere chiave e regione
+### Piper TTS: come funziona (nessuna configurazione richiesta)
 
-1. Vai su [portal.azure.com](https://portal.azure.com/) e crea una risorsa
-   **"Speech"** (cerca "Speech" tra i servizi Cognitive Services → Crea).
-   ⚠️ Azure richiede un account con verifica (in genere carta di
-   credito/debito) per creare la risorsa, anche restando nel piano gratuito
-   — non viene addebitato nulla restando nel tier **F0 (Free)**.
-2. Durante la creazione scegli il piano tariffario **F0 (gratuito)**: circa
-   500.000 caratteri/mese con voci neurali, gratis per sempre entro quella
-   soglia.
-3. Annota la **regione** scelta in fase di creazione (es. `westeurope`,
-   `northeurope`, `eastus`...): è il valore di `AZURE_TTS_REGION`.
-4. A creazione completata, apri la risorsa → **"Chiavi ed endpoint"** nel
-   menu laterale → copia **KEY 1**: è il valore di `AZURE_TTS_KEY`.
+Piper genera la voce **sul dispositivo dello studente**, non su un server:
 
-Se in futuro vuoi cambiare voce, la variabile opzionale `AZURE_TTS_VOICE`
-(default `it-IT-IsabellaNeural`) accetta qualunque nome di voce neurale
-`it-IT` elencato nella
-[documentazione Azure](https://learn.microsoft.com/azure/ai-services/speech-service/language-support?tabs=tts#supported-languages)
-(es. `it-IT-DiegoNeural`, `it-IT-ElsaNeural`, `it-IT-GiuseppeMultilingualNeural`).
+1. Al primo utilizzo, il browser scarica il modello vocale "Paola"
+   (**~63 MB**, una tantum) da Hugging Face, oltre al runtime ONNX
+   (`cdnjs.cloudflare.com`) e al fonemizzatore (`cdn.jsdelivr.net`) — tutti
+   servizi pubblici gratuiti, senza registrazione.
+2. Il modello resta in cache sul dispositivo (Origin Private File System):
+   le sessioni successive sullo stesso dispositivo/browser non lo riscaricano.
+3. Il download del modello parte in background non appena si clicca "Inizia
+   interrogazione", in parallelo con la prima domanda generata da DeepSeek,
+   per non allungare i tempi di attesa percepiti.
+
+Limiti da tenere presenti:
+- Il primo utilizzo richiede scaricare ~63 MB: su una connessione dati lenta
+  o limitata può richiedere qualche secondo/minuto la prima volta.
+- Gira sulla CPU del dispositivo dello studente: su telefoni molto datati
+  potrebbe essere più lento (ma il motore è comunque ottimizzato per girare
+  piu' veloce del tempo reale anche su hardware modesto).
+- Se la rete della scuola/casa blocca huggingface.co, cdnjs.cloudflare.com o
+  cdn.jsdelivr.net, Piper non si carica e si passa automaticamente alla voce
+  nativa del browser.
+
+I file `vendor/piper-tts-web/*.js` sono copiati (vendored, non tramite CDN)
+dal pacchetto npm `@mintplex-labs/piper-tts-web` (licenza MIT) — vedi
+`vendor/piper-tts-web/NOTICE.md` per i dettagli e i servizi esterni usati a
+runtime.
 
 ## Struttura del progetto
 
 ```
 .
-├── index.html          # pagina unica del prototipo
-├── css/style.css        # stile navy/arancione
-├── js/app.js             # logica: Web Speech API + chiamate a /api/deepseek e /api/tts
-├── api/deepseek.js       # funzione serverless: proxy verso DeepSeek (chiave server-side)
-├── api/tts.js            # funzione serverless: proxy verso Azure Speech TTS (chiave server-side)
+├── index.html                 # pagina unica del prototipo
+├── css/style.css               # stile navy/arancione
+├── js/app.js                    # logica: Web Speech API, Piper TTS, chiamate a /api/deepseek
+├── api/deepseek.js              # funzione serverless: proxy verso DeepSeek (chiave server-side)
+├── vendor/piper-tts-web/         # libreria Piper TTS (vendored, MIT, nessuna chiave richiesta)
+├── assets/orbit-mark.png         # logo
 ├── package.json
-├── .env.example          # esempio variabili d'ambiente per sviluppo locale
-└── .gitignore            # esclude .env e .vercel dal repository
+├── .env.example                  # esempio variabili d'ambiente per sviluppo locale
+└── .gitignore                    # esclude .env e .vercel dal repository
 ```
 
 ## Deploy su Vercel
@@ -90,14 +94,11 @@ Se in futuro vuoi cambiare voce, la variabile opzionale `AZURE_TTS_VOICE`
 4. **Output Directory**: imposta `.` (la root del progetto, dove si trova
    `index.html`).
 5. **Variabili d'ambiente** (Project Settings → Environment Variables):
-   - `DEEPSEEK_API_KEY` → la tua chiave API DeepSeek.
-   - `AZURE_TTS_KEY` e `AZURE_TTS_REGION` → chiave e regione di Azure Speech
-     (vedi sezione sopra). Se le ometti, l'app funziona comunque usando la
-     voce nativa del browser come fallback.
-   - `AZURE_TTS_VOICE` (opzionale) → nome di una voce `it-IT` alternativa.
-   - Per ciascuna, seleziona **Production**, **Preview** e **Development**
-     (tutte e tre le spunte), così è disponibile sia in produzione sia nelle
-     preview di eventuali branch/PR.
+   - `DEEPSEEK_API_KEY` → la tua chiave API DeepSeek. Seleziona **Production**,
+     **Preview** e **Development** (tutte e tre le spunte), così è disponibile
+     sia in produzione sia nelle preview di eventuali branch/PR.
+   - Non serve nessun'altra variabile: la voce (Piper TTS) gira nel browser
+     dello studente, senza chiavi.
    - Dopo aver aggiunto o modificato una variabile, fai un **redeploy** (le
      variabili d'ambiente vengono applicate solo ai deploy successivi alla
      modifica).
@@ -126,13 +127,14 @@ cp .env.example .env   # poi inserisci la tua chiave in .env (mai committarlo)
 vercel dev
 ```
 
-`vercel dev` serve sia i file statici sia le funzioni in `api/deepseek.js` e
-`api/tts.js`, leggendo le variabili dal file `.env` locale.
+`vercel dev` serve sia i file statici sia la funzione in `api/deepseek.js`,
+leggendo `DEEPSEEK_API_KEY` dal file `.env` locale.
 
 ## Note sul prototipo
 
-- Il flusso prevede **5 domande** in totale; alla fine l'AI restituisce un
-  voto indicativo da 1 a 10 e 2-3 punti da ripassare.
+- Il numero di domande (1-5, default 1), la difficoltà e la personalità
+  dell'esaminatore sono selezionabili prima di iniziare; alla fine l'AI
+  restituisce un voto indicativo da 1 a 10 e 2-3 punti da ripassare.
 - Non c'è persistenza: ricaricando la pagina la conversazione si azzera.
 - Non c'è integrazione con altri sistemi: è pensato per essere testato in
   isolamento come proof of concept.
