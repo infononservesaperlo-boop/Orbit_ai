@@ -519,7 +519,8 @@
         piperTtsAvailable = false;
         if (!piperFallbackNotified) {
           piperFallbackNotified = true;
-          showAlert("Voce avanzata non disponibile (vedi console per i dettagli): uso la voce del browser.");
+          const detail = (err && (err.message || String(err))) || "errore sconosciuto";
+          showAlert("Voce avanzata non disponibile: " + detail);
         }
       }
     }
